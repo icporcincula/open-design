@@ -152,6 +152,10 @@ function authorSignalAt(facts: PrFacts): number | null {
   const author = facts.author;
   let max: number | null = null;
   for (const c of facts.commits) {
+    // On maintainerCanModify=true PRs a maintainer can push a follow-up
+    // commit. Counting that as an author signal would flip
+    // `awaiting-author-response-*` off even though the author never replied.
+    if (c.authorLogin !== author) continue;
     const t = Date.parse(c.committedDate);
     if (Number.isFinite(t) && (max === null || t > max)) max = t;
   }

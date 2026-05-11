@@ -226,19 +226,22 @@ async function fetchOpenPrReviews(): Promise<GhReviewsLite[]> {
 }
 
 async function fetchOpenPrComments(): Promise<GhCommentsLite[]> {
+  type CommentNode = {
+    author: { login: string } | null;
+    body: string;
+    createdAt: string;
+  };
   type Node = {
     number: number;
-    comments: {
-      nodes: {
-        author: { login: string } | null;
-        body: string;
-        createdAt: string;
-      }[];
-    };
+    comments: { nodes: CommentNode[] };
+    reviewThreads: { nodes: { comments: { nodes: CommentNode[] } }[] };
   };
-  // last: 30 covers the awaiting-* signal detection (we only need the most
-  // recent comments to decide whether human-reviewer signal predates author
-  // signal). PRs with > 30 comments are rare in this repo's queue.
+  // last: 30 covers the issue-thread signal detection (we only need recent
+  // comments to decide whether human-reviewer signal predates author
+  // signal). reviewThreads sweeps inline review-comment replies; PR
+  // authors and reviewers regularly answer inline and never touch the
+  // conversation tab, so missing this stream would let `awaiting-*`
+  // tag the wrong side. last: 20 / first: 20 caps the per-PR fanout.
   const rows = await fetchPaginatedPrList<Node>(
     `number
      comments(last: 30) {
@@ -247,9 +250,23 @@ async function fetchOpenPrComments(): Promise<GhCommentsLite[]> {
          body
          createdAt
        }
+     }
+     reviewThreads(last: 20) {
+       nodes {
+         comments(first: 20) {
+           nodes {
+             author { login }
+             body
+             createdAt
+           }
+         }
+       }
      }`,
   );
-  return rows.map((row) => ({ number: row.number, comments: row.comments.nodes }));
+  return rows.map((row) => {
+    const inline = row.reviewThreads.nodes.flatMap((t) => t.comments.nodes);
+    return { number: row.number, comments: [...row.comments.nodes, ...inline] };
+  });
 }
 
 /**
@@ -463,8 +480,49 @@ const VIEW_FIELDS = [
   "commits",
 ].join(",");
 
+/**
+ * Inline review-thread comments — `pullRequest.comments` GraphQL (and
+ * `gh pr view --json comments`) only return the issue-conversation thread.
+ * REST `pulls/{n}/comments` returns the inline review-comment thread,
+ * which is where authors and reviewers actually exchange most fix-up
+ * replies. Used by `fetchView` to merge into `GhView.comments` so
+ * downstream `awaiting-*` and brief output see both streams.
+ */
+async function fetchInlineReviewComments(num: number): Promise<
+  Array<{
+    author: { login: string } | null;
+    authorAssociation: string;
+    body: string;
+    createdAt: string;
+  }>
+> {
+  type Raw = {
+    user: { login: string } | null;
+    author_association: string;
+    body: string;
+    created_at: string;
+  };
+  const { owner, name } = await detectRepoSlug();
+  const { stdout } = await execFile(
+    "gh",
+    ["api", "--paginate", `repos/${owner}/${name}/pulls/${num}/comments`],
+    { maxBuffer: 64 * 1024 * 1024 },
+  );
+  const raw = JSON.parse(stdout) as Raw[];
+  return raw.map((c) => ({
+    author: c.user ? { login: c.user.login } : null,
+    authorAssociation: c.author_association ?? "",
+    body: c.body ?? "",
+    createdAt: c.created_at,
+  }));
+}
+
 export async function fetchView(num: number): Promise<GhView> {
-  return gh<GhView>(["pr", "view", String(num), "--json", VIEW_FIELDS]);
+  const [view, inline] = await Promise.all([
+    gh<GhView>(["pr", "view", String(num), "--json", VIEW_FIELDS]),
+    fetchInlineReviewComments(num),
+  ]);
+  return { ...view, comments: [...view.comments, ...inline] };
 }
 
 export function labelByPrefix(labels: { name: string }[], prefix: string): string | null {
