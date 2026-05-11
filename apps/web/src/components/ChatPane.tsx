@@ -737,7 +737,7 @@ export function ChatPane({
             projectId={projectId}
             projectFiles={projectFiles}
             skills={skills}
-            streaming={streaming || hasActiveRunMessage}
+            streaming={streaming}
             sendDisabled={sendDisabled}
             initialDraft={initialDraft}
             onEnsureProject={onEnsureProject}
