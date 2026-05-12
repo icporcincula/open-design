@@ -581,69 +581,6 @@ code {
   min-width: 0;
   flex: 0 1 auto;
 }
-.project-target-platforms,
-.project-feature-chips {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  max-width: min(100%, 280px);
-  height: 22px;
-  overflow: hidden;
-  white-space: nowrap;
-  flex: 0 1 auto;
-}
-.project-feature-chips {
-  max-width: min(100%, 260px);
-}
-.project-target-platforms-label,
-.project-feature-chips-label {
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 18px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  flex-shrink: 0;
-}
-.project-target-platform-chip,
-.project-feature-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-  max-width: 92px;
-  height: 20px;
-  padding: 0 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 999px;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--bg-subtle) 88%, transparent);
-  font-size: 11px;
-  line-height: 18px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 0 1 auto;
-}
-.project-feature-chip.is-landing {
-  color: color-mix(in srgb, var(--accent) 72%, var(--text-strong));
-  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-subtle));
-}
-.project-feature-chip.is-widgets {
-  color: color-mix(in srgb, #0891b2 72%, var(--text-strong));
-  border-color: color-mix(in srgb, #0891b2 26%, transparent);
-  background: color-mix(in srgb, #0891b2 10%, var(--bg-subtle));
-}
-.project-target-platform-chip.is-count {
-  min-width: 28px;
-  max-width: 36px;
-  flex: 0 0 auto;
-  color: var(--text-strong);
-  background: color-mix(in srgb, var(--accent, #7c5cff) 12%, var(--bg-subtle));
-}
-
 .topbar {
   display: flex;
   align-items: center;

@@ -79,7 +79,6 @@ import type {
   PreviewComment,
   PreviewCommentTarget,
   ProjectFile,
-  ProjectPlatform,
   ProjectTemplate,
   LiveArtifactEventItem,
   LiveArtifactSummary,
@@ -238,56 +237,6 @@ function projectEventToAgentEvent(evt: ProjectEvent): LiveArtifactEventItem['eve
     refreshedSourceCount: evt.refreshedSourceCount,
     error: evt.error,
   };
-}
-
-const PLATFORM_LABELS: Record<ProjectPlatform, string> = {
-  auto: 'Auto',
-  responsive: 'Responsive web',
-  'web-desktop': 'Desktop web',
-  'mobile-ios': 'iOS app',
-  'mobile-android': 'Android app',
-  tablet: 'Tablet app',
-  'desktop-app': 'Desktop app',
-};
-
-function labelProjectPlatform(platform: ProjectPlatform | string): string {
-  return PLATFORM_LABELS[platform as ProjectPlatform] ?? platform;
-}
-
-function projectTargetPlatforms(project: Project): string[] {
-  const targets = project.metadata?.platformTargets;
-  if (Array.isArray(targets) && targets.length > 0) {
-    return [...new Set(targets)].map(labelProjectPlatform);
-  }
-  if (project.metadata?.platform) {
-    return [labelProjectPlatform(project.metadata.platform)];
-  }
-  return [];
-}
-
-type ProjectFeatureChip = {
-  label: string;
-  title: string;
-  tone: 'landing' | 'widgets';
-};
-
-function projectFeatureChips(project: Project): ProjectFeatureChip[] {
-  const chips: ProjectFeatureChip[] = [];
-  if (project.metadata?.includeLandingPage) {
-    chips.push({
-      label: 'Landing page',
-      title: 'Landing page companion surface is enabled for this project',
-      tone: 'landing',
-    });
-  }
-  if (project.metadata?.includeOsWidgets) {
-    chips.push({
-      label: 'OS widgets',
-      title: 'Home-screen, lock-screen, or quick-access OS widget surfaces are enabled',
-      tone: 'widgets',
-    });
-  }
-  return chips;
 }
 
 export function ProjectView({
@@ -2018,13 +1967,6 @@ export function ProjectView({
     return [skill, ds].filter(Boolean).join(' · ') || t('project.metaFreeform');
   }, [skills, designTemplates, designSystems, project.skillId, project.designSystemId, t]);
 
-  const targetPlatforms = useMemo(() => projectTargetPlatforms(project), [project]);
-  const targetPlatformsLabel = targetPlatforms.join(', ');
-  const visibleTargetPlatforms = targetPlatforms.slice(0, 5);
-  const hiddenTargetPlatformCount = Math.max(0, targetPlatforms.length - visibleTargetPlatforms.length);
-  const featureChips = useMemo(() => projectFeatureChips(project), [project]);
-  const featureChipsLabel = featureChips.map((chip) => chip.label).join(', ');
-
   const isDeck = useMemo(
     () =>
       (skills.find((s) => s.id === project.skillId) ??
@@ -2374,43 +2316,6 @@ export function ProjectView({
             </span>
             <span className="meta" data-testid="project-meta">{projectMeta}</span>
           </span>
-          {targetPlatforms.length > 0 ? (
-            <span
-              className="project-target-platforms"
-              data-testid="project-target-platforms"
-              title={`Target platforms: ${targetPlatformsLabel}`}
-            >
-              <span className="project-target-platforms-label">Targets</span>
-              {visibleTargetPlatforms.map((platform) => (
-                <span className="project-target-platform-chip" key={platform}>
-                  {platform}
-                </span>
-              ))}
-              {hiddenTargetPlatformCount > 0 ? (
-                <span className="project-target-platform-chip is-count">
-                  +{hiddenTargetPlatformCount}
-                </span>
-              ) : null}
-            </span>
-          ) : null}
-          {featureChips.length > 0 ? (
-            <span
-              className="project-feature-chips"
-              data-testid="project-feature-chips"
-              title={`Enabled design outputs: ${featureChipsLabel}`}
-            >
-              <span className="project-feature-chips-label">Includes</span>
-              {featureChips.map((chip) => (
-                <span
-                  className={`project-feature-chip is-${chip.tone}`}
-                  key={chip.tone}
-                  title={chip.title}
-                >
-                  {chip.label}
-                </span>
-              ))}
-            </span>
-          ) : null}
         </div>
       </AppChromeHeader>
       <div
