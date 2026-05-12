@@ -433,6 +433,9 @@ const stylePolicySkippedDirectories = new Set([
 
 const stylePolicySourcePrefixes = ["apps/web/app/", "apps/web/src/"];
 const stylePolicyHardcodedColorEnforcedPrefixes = ["scripts/guard-style-policy-fixtures/"];
+const stylePolicyCheckedDirectoryPrefixes = [
+  ...new Set([...stylePolicySourcePrefixes, ...stylePolicyHardcodedColorEnforcedPrefixes]),
+];
 const stylePolicyExtensions = new Set([".css", ".ts", ".tsx"]);
 const tailwindDefaultColorNames = [
   "slate",
@@ -617,8 +620,29 @@ async function collectStylePolicyViolations(directory: string): Promise<StylePol
   return violations;
 }
 
+async function repositoryDirectoryExists(repositoryPath: string): Promise<boolean> {
+  const parentPath = path.join(repoRoot, path.dirname(repositoryPath));
+  const directoryName = path.basename(repositoryPath);
+  const entries = await readdir(parentPath, { withFileTypes: true });
+
+  return entries.some((entry) => entry.name === directoryName && entry.isDirectory());
+}
+
+async function collectStylePolicyViolationsFromCheckedPaths(): Promise<StylePolicyViolation[]> {
+  const violations: StylePolicyViolation[] = [];
+
+  for (const repositoryPrefix of stylePolicyCheckedDirectoryPrefixes) {
+    const repositoryDirectory = repositoryPrefix.replace(/\/$/, "");
+    if (!(await repositoryDirectoryExists(repositoryDirectory))) continue;
+
+    violations.push(...(await collectStylePolicyViolations(path.join(repoRoot, repositoryDirectory))));
+  }
+
+  return violations;
+}
+
 async function checkStylePolicy(): Promise<boolean> {
-  const violations = await collectStylePolicyViolations(repoRoot);
+  const violations = await collectStylePolicyViolationsFromCheckedPaths();
 
   if (violations.length > 0) {
     console.error("Style policy violations found:");
