@@ -1276,6 +1276,37 @@ export function telemetryPromptFromRunRequest(message, currentPrompt) {
   return typeof currentPrompt === 'string' ? currentPrompt : message;
 }
 
+export function createFinalizedMessageTelemetryReporter({
+  design,
+  db,
+  dataDir,
+  reportedRuns,
+  getAppVersion = () => null,
+  report = reportRunCompletedFromDaemon,
+}: {
+  design: any;
+  db: unknown;
+  dataDir: string;
+  reportedRuns: Set<string>;
+  getAppVersion?: () => any;
+  report?: typeof reportRunCompletedFromDaemon;
+}) {
+  return (saved, body = {}) => {
+    if (!shouldReportRunCompletedFromMessage(saved, body)) return;
+    const run = design.runs.get(saved.runId);
+    if (!run || reportedRuns.has(run.id)) return;
+    reportedRuns.add(run.id);
+    void report({
+      db,
+      dataDir,
+      run,
+      persistedRunStatus: saved.runStatus,
+      persistedEndedAt: saved.endedAt,
+      appVersion: getAppVersion(),
+    });
+  };
+}
+
 const CLOUDFLARE_PAGES_PROJECT_METADATA_KEY = 'cloudflarePagesProjectName';
 
 function cloudflarePagesDeploymentMetadata(projectName) {
@@ -2594,6 +2625,14 @@ export async function startServer({
     }
   })();
 
+  const reportFinalizedMessage = createFinalizedMessageTelemetryReporter({
+    design,
+    db,
+    dataDir: RUNTIME_DATA_DIR,
+    reportedRuns,
+    getAppVersion: () => cachedAppVersion,
+  });
+
   const validateExternalApiBaseUrl = (baseUrl) => validateBaseUrl(baseUrl);
 
   const resolvedPortRef = {
@@ -2815,6 +2854,7 @@ export async function startServer({
     status: projectStatusDeps,
     events: projectEventDeps,
     ids: idDeps,
+    telemetry: { reportFinalizedMessage },
   });
   registerImportRoutes(app, {
     db,
