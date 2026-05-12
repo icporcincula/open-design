@@ -75,6 +75,58 @@
   | Repeated arbitrary app UI colors | Any unregistered hardcoded color after the second real app UI use | Promote to a named Open Design token before migration. One-off brand/user-content/illustration data keeps a reasoned allowlist entry. |
 - Inventory verification: the Step 4 scan produced complete coverage for literal class tokens by cross-checking TSX references against `index.css` class selector definitions. Migration slices remain responsible for dynamic class maps and classes changed after rebase.
 
+### Step 5: Dual-worktree agent visual comparison workflow
+
+- Baseline worktree: `/Users/william/projects/open-design` on `main`; candidate worktree: `/Users/william/projects/open-design-wt-tailwind-phase-1` on `tailwind-phase-1`.
+- Fixed service assignments for Phase 1 and follow-up migration slices:
+  | Role | Namespace | Daemon port | Web port | URL |
+  | --- | --- | ---: | ---: | --- |
+  | Baseline | `tailwind-baseline` | `18110` | `18111` | `http://127.0.0.1:18111` |
+  | Candidate | `tailwind-candidate` | `18120` | `18121` | `http://127.0.0.1:18121` |
+- Startup commands:
+  ```bash
+  # In /Users/william/projects/open-design
+  pnpm tools-dev run web --namespace tailwind-baseline --daemon-port 18110 --web-port 18111
+
+  # In /Users/william/projects/open-design-wt-tailwind-phase-1
+  pnpm tools-dev run web --namespace tailwind-candidate --daemon-port 18120 --web-port 18121
+  ```
+- Scenario list for the agent comparison record:
+  | Scenario | Route / state | Required evidence |
+  | --- | --- | --- |
+  | Dashboard / app shell | `/` with the same local data state in both worktrees | Full-viewport screenshots and notes on shell spacing, page background, nav/header controls, text color, and accent buttons. |
+  | Project detail | Open the same project in both services, seeded or selected through the production HTTP/UI flow | Screenshots of the project header, chat pane, composer, side panels, status surfaces, and shared controls. |
+  | Settings dialog | Open settings from the app UI in both services | Screenshots of modal scrim, modal radius/shadow, settings chrome, sections, buttons, form controls, pills, and disabled states. |
+  | File viewer / inspect overlay | Open the same file or artifact in both services and enable inspect/edit overlay state where available | Screenshots of viewer toolbar/body, tabs, overlays, selection/comment affordances, code/file text, and any source preview boundaries. |
+  | Sketch editor | Open the same sketch surface or fixture project in both services | Screenshots of editor chrome, canvas-adjacent controls, toolbar buttons, popovers, and user-content color boundaries. |
+  | Live artifact card | Open the same artifact/runtime surface in both services | Screenshots of card shell, iframe/runtime boundary, refreshing/failed/success status badges, and action controls. |
+  | Modal / popover / control states | Trigger representative menus, quick switcher/avatar/conversation menus, confirmation/question modals, hover/focus/disabled states where practical | Paired screenshots and drift notes for overlay elevation, radius, border color, focus ring, and hover state. |
+- Viewport and browser state: use `1440x1000` viewport at device scale factor `1`; compare the same scroll position and the same opened dialogs/popovers; avoid mixed zoom or retained browser state between baseline and candidate sessions.
+- Theme/accent matrix:
+  | Mode | Required state |
+  | --- | --- |
+  | Light | `data-theme="light"`, default accent. |
+  | Dark | `data-theme="dark"`, default accent. |
+  | System | Clear explicit `data-theme`; run with a recorded OS/browser color-scheme setting. |
+  | Custom accent | Apply the same custom accent in both services through the real settings UI or the same documented localStorage/document-token setup before capture. |
+- Fixture data policy: seed through product UI or production HTTP APIs only; record project/artifact/file IDs or fixture creation steps in the phase note. Do not use source-level test backdoors for visual acceptance fixtures.
+- Screenshot artifact requirements: store captures under `.tmp/visual-comparison/<phase>/<scenario>/<theme>/` in the candidate worktree, with paired names like `baseline-dashboard-light.png` and `candidate-dashboard-light.png`; include any annotated screenshots only as supporting artifacts. The phase note must list artifact paths, service URLs, viewport, theme/accent state, fixture identifiers, drift decisions, and approved deviations.
+- Component source inspection guidance: use screenshots as the primary acceptance artifact. Inspect component source only when a screenshot shows drift or a migrated global class needs traceability to its token-first utility replacement; cite the component path/class or selector and record whether the fix was made or deviation approved.
+- Drift handling: layout offsets, token color changes, radius/shadow changes, focus/hover changes, or theme/accent state mismatches must be fixed in the migration slice or listed as an approved deviation with owner/reason. Missing fixture data is a failed comparison setup, so stop and seed the shared data rather than accepting empty screenshots.
+- Phase notes format for each visual slice:
+  ```markdown
+  ### Agent visual comparison
+  - Baseline: <worktree>, namespace `<name>`, URL `<url>`, command `<command>`
+  - Candidate: <worktree>, namespace `<name>`, URL `<url>`, command `<command>`
+  - Viewport: 1440x1000 @1x
+  - Fixture data: <project/artifact/file IDs or setup steps>
+  - Matrix covered: <scenarios × themes/accent states>
+  - Screenshot artifacts: <paths>
+  - Component source inspected: <paths/selectors and reason>
+  - Drift found: <items>
+  - Fixes made / approved deviations: <items>
+  ```
+
 ### Implementation requirements
 
 - Tailwind no-Preflight setup must use the official layered CSS imports in `apps/web/src/index.css`:
@@ -110,3 +162,18 @@
 - `pnpm typecheck` - passed after adding the Step 4 documentation.
 - `pnpm --filter @open-design/web test` - passed; 99 files / 925 tests.
 - `pnpm --filter @open-design/web build` - passed with Next.js 16/Turbopack.
+- Dual-worktree services started successfully for the Phase 1 workflow smoke run:
+  - Baseline: `/Users/william/projects/open-design`, namespace `tailwind-baseline`, daemon `http://127.0.0.1:18110`, web `http://127.0.0.1:18111`, command `pnpm tools-dev run web --namespace tailwind-baseline --daemon-port 18110 --web-port 18111`.
+  - Candidate: `/Users/william/projects/open-design-wt-tailwind-phase-1`, namespace `tailwind-candidate`, daemon `http://127.0.0.1:18120`, web `http://127.0.0.1:18121`, command `pnpm tools-dev run web --namespace tailwind-candidate --daemon-port 18120 --web-port 18121`.
+- `pnpm tools-dev status --namespace tailwind-baseline --json` and `pnpm tools-dev status --namespace tailwind-candidate --json` - both reported daemon/web running; desktop remained idle, which is expected for web-only comparison.
+- Agent visual comparison smoke run:
+  - Tooling: agent-browser CLI opened both web URLs in isolated sessions and captured paired Dashboard/app shell screenshots; Chrome DevTools MCP captured a candidate accessibility snapshot and paired Dashboard/app shell screenshots at a 1440x1000 viewport.
+  - Scenario/theme covered in Phase 1 smoke run: Dashboard/app shell, light/default accent, empty local data state in both worktrees.
+  - agent-browser artifacts: `.tmp/visual-comparison/phase1/dashboard/light/baseline-dashboard-light.png` and `.tmp/visual-comparison/phase1/dashboard/light/candidate-dashboard-light.png`.
+  - Chrome DevTools MCP artifacts: `.tmp/visual-comparison/phase1/dashboard/light/baseline-dashboard-light-devtools-1440x1000.png`, `.tmp/visual-comparison/phase1/dashboard/light/candidate-dashboard-light-devtools-1440x1000.png`, and `.tmp/visual-comparison/phase1/dashboard/light/candidate-devtools-snapshot.txt`.
+  - `sips -g pixelWidth -g pixelHeight ... && cmp -s ...` - passed for the agent-browser screenshots and the Chrome DevTools MCP screenshots; dimensions matched and the captured Dashboard/app shell images were byte-identical for the Phase 1 smoke run.
+  - Drift found: none in the covered smoke scenario.
+  - Approved deviations: none.
+- Full scenario/theme/accent coverage is now defined as the required gate for migration slices. Phase 1 recorded the startup parameters, artifact contract, fixture policy, scenario matrix, theme/accent matrix, and notes format; later phases must seed the same project/artifact/file data in both services before checking project detail, settings, file viewer/inspect, sketch editor, live artifact, modal/popover, dark/system, and custom-accent states.
+- `pnpm guard` - passed after recording the dual-worktree visual comparison workflow.
+- `pnpm typecheck` - passed after recording the dual-worktree visual comparison workflow.
