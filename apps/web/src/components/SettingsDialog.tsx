@@ -52,7 +52,7 @@ import type {
 } from '../types';
 import { testAgent, testApiProvider } from '../providers/connection-test';
 import { fetchProviderModels } from '../providers/provider-models';
-import { fetchConnectors, fetchSkills } from '../providers/registry';
+import { fetchConnectors, fetchDesignTemplates } from '../providers/registry';
 import { MEDIA_PROVIDERS } from '../media/models';
 import type { MediaProvider } from '../media/models';
 import { PetSettings } from './pet/PetSettings';
@@ -3054,11 +3054,12 @@ function OrbitSection({
   const [legacyLastRunTemplateSkillId, setLegacyLastRunTemplateSkillId] = useState<string | null>(null);
   const legacyLastRunIdentity = status?.lastRun?.id
     ?? `${status?.lastRun?.completedAt ?? ''}:${status?.lastRun?.agentRunId ?? ''}:${status?.lastRun?.markdown ?? ''}`;
-  // Orbit-scenario skill templates fetched from /api/skills. We fetch on mount
-  // and keep three states for graceful UX: `null` = still loading, `[]` =
-  // loaded with no orbit templates available, `SkillSummary[]` = ready. If
-  // the daemon is offline the call resolves with [] (see fetchSkills) so the
-  // section never throws — the rest of the Orbit controls keep working.
+  // Orbit templates ship under the renderable design-templates registry after
+  // the skills/design-templates split. We fetch on mount and keep three states
+  // for graceful UX: `null` = still loading, `[]` = loaded with no Orbit
+  // templates available, `SkillSummary[]` = ready. If the daemon is offline
+  // the call resolves with [] (see fetchDesignTemplates) so the section never
+  // throws — the rest of the Orbit controls keep working.
   const [orbitTemplates, setOrbitTemplates] = useState<SkillSummary[] | null>(null);
   // Connector presence drives the configuration gate at the top of the Orbit
   // tab. We track three states: `null` = still loading (skip rendering the
@@ -3112,14 +3113,15 @@ function OrbitSection({
     return () => window.clearInterval(interval);
   }, [status?.running]);
 
-  // Fetch the skills registry once on mount and filter to scenario === 'orbit'.
-  // We tolerate fetch failure: fetchSkills already swallows errors and returns
-  // []. The component then transitions from "loading" → "empty" and the rest
-  // of the Orbit panel stays fully functional.
+  // Fetch the design-template registry once on mount and filter to
+  // scenario === 'orbit'. We tolerate fetch failure:
+  // fetchDesignTemplates already swallows errors and returns []. The
+  // component then transitions from "loading" → "empty" and the rest of the
+  // Orbit panel stays fully functional.
   useEffect(() => {
     let alive = true;
     void (async () => {
-      const all = await fetchSkills();
+      const all = await fetchDesignTemplates();
       if (!alive) return;
       const filtered = all.filter((s) => s.scenario === 'orbit');
       // Stable order: featured first (higher number = more featured), then by name.
