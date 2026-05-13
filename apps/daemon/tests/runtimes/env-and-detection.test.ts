@@ -400,6 +400,38 @@ test('detectAgents keeps Cursor Agent available when auth is missing', async () 
   }
 });
 
+test('detectAgents treats Cursor Agent Not logged in status as missing auth', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'od-cursor-not-logged-in-'));
+  try {
+    await withEnvSnapshot(['PATH', 'OD_AGENT_HOME'], async () => {
+      const bin = join(dir, process.platform === 'win32' ? 'cursor-agent.cmd' : 'cursor-agent');
+      if (process.platform === 'win32') {
+        writeFileSync(
+          bin,
+          '@echo off\r\nif "%~1"=="--version" echo 2026.05.07-test& exit /b 0\r\nif "%~1"=="models" echo No models available for this account.& exit /b 0\r\nif "%~1"=="status" echo Not logged in 1>&2& exit /b 1\r\nexit /b 0\r\n',
+        );
+      } else {
+        writeFileSync(
+          bin,
+          '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "2026.05.07-test"; exit 0; fi\nif [ "$1" = "models" ]; then echo "No models available for this account."; exit 0; fi\nif [ "$1" = "status" ]; then echo "Not logged in" >&2; exit 1; fi\nexit 0\n',
+        );
+        chmodSync(bin, 0o755);
+      }
+      process.env.PATH = dir;
+      process.env.OD_AGENT_HOME = dir;
+
+      const agents = await detectAgents();
+      const detected = agents.find((agent) => agent.id === 'cursor-agent');
+
+      assert.equal(detected?.available, true);
+      assert.equal(detected?.authStatus, 'missing');
+      assert.match(detected?.authMessage ?? '', /cursor-agent login/);
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // Windows env-var names are case-insensitive at the kernel level, but
 // spreading process.env into a plain object loses Node's case-insensitive
 // accessor — a `Anthropic_Api_Key` key would survive a literal

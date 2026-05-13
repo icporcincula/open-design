@@ -207,6 +207,51 @@ process.exit(1);
     );
   });
 
+  it('classifies Cursor Agent Not logged in stderr as a typed run error', async () => {
+    await withFakeAgent(
+      'cursor-agent',
+      `
+const args = process.argv.slice(2);
+if (args[0] === '--version') {
+  console.log('2026.05.07-test');
+  process.exit(0);
+}
+if (args[0] === 'models') {
+  console.log('auto');
+  process.exit(0);
+}
+console.error('Not logged in');
+process.exit(1);
+`,
+      async () => {
+        const createResponse = await fetch(`${baseUrl}/api/runs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: 'cursor-agent',
+            message: 'hello',
+          }),
+        });
+        expect(createResponse.status).toBe(202);
+        const { runId } = await createResponse.json() as { runId: string };
+
+        const eventsController = new AbortController();
+        const eventsResponse = await fetch(`${baseUrl}/api/runs/${runId}/events`, {
+          signal: eventsController.signal,
+        });
+        const eventsBody = await readSseUntil(eventsResponse, 'AGENT_AUTH_REQUIRED');
+        eventsController.abort();
+        const statusBody = await waitForRunStatus(baseUrl, runId);
+
+        expect(eventsBody).toContain('event: error');
+        expect(eventsBody).toContain('AGENT_AUTH_REQUIRED');
+        expect(eventsBody).toContain('cursor-agent login');
+        expect(eventsBody).toContain('cursor-agent status');
+        expect(statusBody.status).toBe('failed');
+      },
+    );
+  });
+
   it('surfaces Qoder assistant error records through the SSE error channel', async () => {
     const qoderErrorLine = JSON.stringify({
       type: 'assistant',

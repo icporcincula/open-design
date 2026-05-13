@@ -1541,6 +1541,42 @@ process.exit(1);
     );
   });
 
+  it('reports Cursor Agent Not logged in status before running the smoke prompt', async () => {
+    await withFakeCursorAgent(
+      `
+const args = process.argv.slice(2);
+if (args[0] === '--version') {
+  console.log('2026.05.07-test');
+  process.exit(0);
+}
+if (args[0] === 'models') {
+  console.log('No models available for this account.');
+  process.exit(0);
+}
+if (args[0] === 'status') {
+  console.error('Not logged in');
+  process.exit(1);
+}
+console.error('smoke prompt should not run when status reports missing auth');
+process.exit(1);
+`,
+      async () => {
+        const res = await realFetch(`${baseUrl}/api/test/connection`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode: 'agent', agentId: 'cursor-agent' }),
+        });
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toMatchObject({
+          ok: false,
+          kind: 'agent_auth_required',
+          agentName: 'Cursor Agent',
+          detail: expect.stringContaining('cursor-agent login'),
+        });
+      },
+    );
+  });
+
   it('classifies Cursor Agent runtime auth failures from stderr', async () => {
     await withFakeCursorAgent(
       `
