@@ -90,6 +90,27 @@ export async function readDesignSystemAssets(
   return { tokensCss, fixtureHtml };
 }
 
+/**
+ * Returns true when the daemon should inject the structured design-system
+ * channel (tokens.css + components.html) into the system prompt for the
+ * active brand. Default-on as of PR-D — the only value that disables
+ * the channel is the literal string `'0'` on `OD_DESIGN_TOKEN_CHANNEL`,
+ * which acts as the kill switch. Unset, `'1'`, `'true'`, empty string,
+ * or any other value all keep the new default.
+ *
+ * Extracted from `server.ts` so the env-flag semantics (the single
+ * line PR-D actually flipped) can be unit-tested independently of the
+ * full daemon boot path. A regression that, say, restored the old
+ * `=== '1'` semantics or read the wrong env name would change the
+ * return value here and fail the unit test, even before any
+ * downstream prompt-assembly behaviour drifts.
+ */
+export function isDesignTokenChannelEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.OD_DESIGN_TOKEN_CHANNEL !== '0';
+}
+
 async function readFileOptional(file: string): Promise<string | undefined> {
   try {
     return await readFile(file, 'utf8');

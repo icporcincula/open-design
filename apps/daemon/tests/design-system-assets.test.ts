@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { readDesignSystemAssets } from '../src/design-systems.js';
+import { isDesignTokenChannelEnabled, readDesignSystemAssets } from '../src/design-systems.js';
 
 function fresh(): string {
   return mkdtempSync(path.join(tmpdir(), 'od-design-system-assets-'));
@@ -110,5 +110,43 @@ describe('readDesignSystemAssets', () => {
     const assets = await readDesignSystemAssets(root, 'partial');
     expect(assets.tokensCss).toBe(':root { --x: 1; }');
     expect(assets.fixtureHtml).toBeUndefined();
+  });
+});
+
+// Reviewer feedback (nettee, PR-D #1544): the parity guard at
+// `scripts/check-design-system-flag-parity.ts` exercises the prompt
+// composer directly and therefore does NOT cover the server-layer env
+// gate that PR-D actually flipped — a future regression that restored
+// `=== '1'`, used a typo'd env name, or stopped reading assets when
+// the var is unset would still let the guard pass green. These tests
+// pin the predicate that wraps the gate so the default-on flip itself
+// is locked into the test suite.
+describe('isDesignTokenChannelEnabled (PR-D env gate)', () => {
+  it('is true when OD_DESIGN_TOKEN_CHANNEL is unset (PR-D default-on)', () => {
+    expect(isDesignTokenChannelEnabled({})).toBe(true);
+  });
+
+  it('is true for the legacy explicit opt-in `1`', () => {
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: '1' })).toBe(true);
+  });
+
+  it('is true for any non-`0` truthy-looking value (forward compatibility)', () => {
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: 'true' })).toBe(true);
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: 'on' })).toBe(true);
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: '2' })).toBe(true);
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: 'yes' })).toBe(true);
+  });
+
+  it('is true for an empty string (operator typed `=` and forgot the value — fail open, not closed)', () => {
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: '' })).toBe(true);
+  });
+
+  it('is false ONLY for the literal kill-switch value `0`', () => {
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: '0' })).toBe(false);
+  });
+
+  it('is true for whitespace-padded `0` — strict literal match prevents accidental kill-switch tripping', () => {
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: ' 0' })).toBe(true);
+    expect(isDesignTokenChannelEnabled({ OD_DESIGN_TOKEN_CHANNEL: '0 ' })).toBe(true);
   });
 });

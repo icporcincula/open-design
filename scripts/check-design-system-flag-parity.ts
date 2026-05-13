@@ -68,9 +68,22 @@ async function fileExists(filePath: string): Promise<boolean> {
   try {
     const stats = await stat(filePath);
     return stats.isFile();
-  } catch {
-    return false;
+  } catch (err) {
+    // Only treat genuine "not there" failures as a clean false. Every
+    // other fs error (`EACCES`, `EPERM`, `EIO`, a directory at the
+    // file path, …) means the parity inventory cannot be read — and
+    // since this guard exists precisely to catch silent
+    // misconfigurations during the PR-D rollout, we must surface those
+    // loudly instead of treating them as "brand absent".
+    if (isAbsenceError(err)) return false;
+    throw err;
   }
+}
+
+function isAbsenceError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const code = (err as { code?: unknown }).code;
+  return code === "ENOENT" || code === "ENOTDIR";
 }
 
 function extractTitle(designMd: string, fallback: string): string {
@@ -85,8 +98,14 @@ async function discoverBrandSnapshots(): Promise<BrandSnapshot[]> {
   let entries;
   try {
     entries = await readdir(designSystemsRoot, { withFileTypes: true });
-  } catch {
-    return [];
+  } catch (err) {
+    // Same absence-vs-real-error split as `fileExists` above. A
+    // missing `design-systems/` directory is a non-issue (some
+    // packaged distributions ship without it); every other readdir
+    // failure means the parity check cannot enumerate brands and
+    // must fail the guard loudly.
+    if (isAbsenceError(err)) return [];
+    throw err;
   }
 
   const snapshots: BrandSnapshot[] = [];

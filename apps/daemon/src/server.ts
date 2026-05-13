@@ -38,7 +38,12 @@ import { installFromTarget, uninstallById, sanitizeRepoName } from './library-in
 import { buildWindowsFolderDialogCommand, parseFolderDialogStdout } from './native-folder-dialog.js';
 import { listCodexPets, readCodexPetSpritesheet } from './codex-pets.js';
 import { syncCommunityPets } from './community-pets-sync.js';
-import { listDesignSystems, readDesignSystem, readDesignSystemAssets } from './design-systems.js';
+import {
+  isDesignTokenChannelEnabled,
+  listDesignSystems,
+  readDesignSystem,
+  readDesignSystemAssets,
+} from './design-systems.js';
 import {
   composeMemoryBody,
   deleteMemoryEntry,
@@ -3016,7 +3021,7 @@ export async function startServer({
         (await readDesignSystem(DESIGN_SYSTEMS_DIR, effectiveDesignSystemId)) ??
         (await readDesignSystem(USER_DESIGN_SYSTEMS_DIR, effectiveDesignSystemId)) ??
         undefined;
-      if (process.env.OD_DESIGN_TOKEN_CHANNEL !== '0') {
+      if (isDesignTokenChannelEnabled()) {
         // Try built-in dir first, then user-installed dir, mirroring the
         // DESIGN.md fallback chain above. Any individual file may be
         // missing (e.g. tokens.css present, components.html absent); the
