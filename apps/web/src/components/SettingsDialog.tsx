@@ -1796,11 +1796,11 @@ export function SettingsDialog({
                               <div className="agent-card-meta">
                                 {a.authStatus === 'missing' ? (
                                   <span title={a.authMessage ?? a.path ?? ''}>
-                                    Authentication required
+                                    {t('settings.agentAuthRequired')}
                                   </span>
                                 ) : a.authStatus === 'unknown' ? (
                                   <span title={a.authMessage ?? a.path ?? ''}>
-                                    Auth status unknown
+                                    {t('settings.agentAuthUnknown')}
                                   </span>
                                 ) : a.version ? (
                                   <span title={a.path ?? ''}>{a.version}</span>

@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import {
   assert, chmodSync, detectAgents, inspectAgentExecutableResolution, join, minimalAgentDef, mkdirSync, mkdtempSync, opencode, resolveAgentExecutable, rmSync, spawnEnvForAgent, tmpdir, withEnvSnapshot, withPlatform, writeFileSync,
 } from './helpers/test-helpers.js';
+import { isCursorAuthFailureText } from '../../src/runtimes/auth.js';
 
 // Issue #398: Claude Code prefers ANTHROPIC_API_KEY over `claude login`
 // credentials, silently billing API usage. Strip it for the claude
@@ -430,6 +431,11 @@ test('detectAgents treats Cursor Agent Not logged in status as missing auth', as
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('Cursor auth matcher covers current unauthenticated Cursor error records', () => {
+  assert.equal(isCursorAuthFailureText('ConnectError: [unauthenticated]'), true);
+  assert.equal(isCursorAuthFailureText('Error: [unauthenticated] Error'), true);
 });
 
 // Windows env-var names are case-insensitive at the kernel level, but

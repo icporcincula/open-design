@@ -20,6 +20,7 @@ export function isCursorAuthFailureText(text: string): boolean {
     /authentication required/i.test(value) ||
     /not authenticated/i.test(value) ||
     /not logged in/i.test(value) ||
+    /unauthenticated/i.test(value) ||
     /agent login/i.test(value) ||
     /cursor_api_key/i.test(value)
   );
