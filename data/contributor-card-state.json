@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-17T07:03:17.066Z",
+  "generatedAt": "2026-05-17T07:20:02.648Z",
   "contributors": {
     "huyhoangnhh98": {
       "lastAnnouncedTier": "spark",
@@ -409,10 +409,11 @@
       "lastAnnouncedAt": "2026-05-14T08:45:00.944Z"
     },
     "leilei926524-tech": {
-      "lastAnnouncedTier": "spark",
-      "lastKnownScore": 1,
-      "lastCheckedAt": "2026-05-14T09:57:25.932Z",
-      "lastAnnouncedAt": "2026-05-14T08:54:12.622Z"
+      "lastAnnouncedTier": "signal",
+      "lastKnownScore": 71,
+      "lastCheckedAt": "2026-05-17T07:20:02.648Z",
+      "scoreVersion": "weighted-v1",
+      "lastAnnouncedAt": "2026-05-17T07:20:02.648Z"
     },
     "azurall1230-svg": {
       "lastAnnouncedTier": "spark",
