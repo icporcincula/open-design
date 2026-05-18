@@ -112,6 +112,7 @@ const EMPTY_SETUP: SetupState = {
 const GENERATION_JOB_STORAGE_PREFIX = 'od:design-system-generation-job:';
 const GITHUB_CONNECTOR_ID = 'github';
 const CONNECTOR_CALLBACK_MESSAGE_TYPE = 'open-design:connector-connected';
+const GITHUB_CONNECTOR_STATUS_TIMEOUT_MS = 5000;
 const LOCAL_CODE_UPLOAD_ROOT = 'context/local-code';
 const FIGMA_CONTEXT_ROOT = 'context/figma';
 const ASSET_UPLOAD_ROOT = 'assets';
@@ -194,8 +195,10 @@ export function DesignSystemCreationFlow({
   const [githubConnectorAction, setGithubConnectorAction] = useState<'connect' | 'disconnect' | null>(null);
   const [githubAuthorizationPending, setGithubAuthorizationPending] = useState(false);
   const [githubAuthorizationUrl, setGithubAuthorizationUrl] = useState<string | null>(null);
+  const githubConnectorRefreshId = useRef(0);
 
   const refreshGithubConnector = useCallback(async () => {
+    const refreshId = ++githubConnectorRefreshId.current;
     if (!composioConfigured) {
       setGithubConnector(null);
       setGithubAuthorizationPending(false);
@@ -205,17 +208,26 @@ export function DesignSystemCreationFlow({
     setGithubConnectorLoading(true);
     setGithubConnectorError(null);
     try {
-      const connector = await fetchConnectorDetail(GITHUB_CONNECTOR_ID);
+      const { connector, timedOut } = await fetchConnectorDetailWithTimeout(GITHUB_CONNECTOR_ID);
+      if (githubConnectorRefreshId.current !== refreshId) return;
       setGithubConnector(connector);
       if (connector?.status === 'connected') {
         setGithubAuthorizationPending(false);
         setGithubAuthorizationUrl(null);
       }
+      if (timedOut) {
+        setGithubConnectorError(
+          'Could not finish checking GitHub connector. You can still add repository URLs or connect GitHub manually.',
+        );
+      }
     } catch (err) {
+      if (githubConnectorRefreshId.current !== refreshId) return;
       setGithubConnector(null);
       setGithubConnectorError(err instanceof Error ? err.message : 'Could not check the GitHub connector.');
     } finally {
-      setGithubConnectorLoading(false);
+      if (githubConnectorRefreshId.current === refreshId) {
+        setGithubConnectorLoading(false);
+      }
     }
   }, [composioConfigured]);
 
@@ -2278,6 +2290,28 @@ function isComposioConfigured(composio: AppConfig['composio'] | undefined): bool
 
 function isGithubConnectorConnected(connector: ConnectorDetail | null): boolean {
   return connector?.status === 'connected';
+}
+
+async function fetchConnectorDetailWithTimeout(
+  connectorId: string,
+): Promise<{ connector: ConnectorDetail | null; timedOut: boolean }> {
+  let timeoutId: number | undefined;
+  let timedOut = false;
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        resolve(null);
+      }, GITHUB_CONNECTOR_STATUS_TIMEOUT_MS);
+    });
+    const connector = await Promise.race([
+      fetchConnectorDetail(connectorId),
+      timeout,
+    ]);
+    return { connector, timedOut };
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
 }
 
 function isPendingConnectorAuth(auth: ConnectorConnectResponse['auth'] | undefined): boolean {

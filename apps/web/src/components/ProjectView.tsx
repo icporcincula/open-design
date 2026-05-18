@@ -290,6 +290,10 @@ function autoSendAttachmentsKey(projectId: string): string {
   return `od:auto-send-attachments:${projectId}`;
 }
 
+function designSystemAuditAutoRepairKey(projectId: string): string {
+  return `od:design-system-audit-auto-repair:${projectId}`;
+}
+
 function readAutoSendAttachments(projectId: string): ChatAttachment[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -310,6 +314,27 @@ function clearAutoSendSession(projectId: string): void {
     window.sessionStorage.removeItem(autoSendAttachmentsKey(projectId));
   } catch {
     /* ignore */
+  }
+}
+
+function markDesignSystemAuditAutoRepairEligible(projectId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(designSystemAuditAutoRepairKey(projectId), '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+function consumeDesignSystemAuditAutoRepair(projectId: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const key = designSystemAuditAutoRepairKey(projectId);
+    const eligible = Boolean(window.sessionStorage.getItem(key));
+    window.sessionStorage.removeItem(key);
+    return eligible;
+  } catch {
+    return false;
   }
 }
 
@@ -459,6 +484,8 @@ export function ProjectView({
     code?: string | null;
   } | null>(null);
   const [chatSeed, setChatSeed] = useState<{ id: string; value: string } | null>(null);
+  const [autoAuditRepairSeed, setAutoAuditRepairSeed] =
+    useState<{ id: string; value: string } | null>(null);
   const [chatPanelWidth, setChatPanelWidth] = useState(readSavedChatPanelWidth);
   const [chatPanelMaxWidth, setChatPanelMaxWidth] = useState(MAX_CHAT_PANEL_WIDTH);
   const [workspacePanelMinWidth, setWorkspacePanelMinWidth] = useState(MIN_WORKSPACE_PANEL_WIDTH);
@@ -529,6 +556,7 @@ export function ProjectView({
   }, [project.id]);
   useEffect(() => {
     setChatSeed(null);
+    setAutoAuditRepairSeed(null);
   }, [project.id]);
   // Monotonic token bumped on every `conversation-created` refresh dispatch.
   // Two rapid events (e.g. concurrent routine runs against the same reused
@@ -1291,7 +1319,11 @@ export function ProjectView({
         );
         const repairPrompt = buildDesignSystemPackageAuditRepairPrompt(audit);
         if (repairPrompt) {
-          setChatSeed({ id: `audit-${Date.now()}`, value: repairPrompt });
+          const seed = { id: `audit-${Date.now()}`, value: repairPrompt };
+          setChatSeed(seed);
+          if (consumeDesignSystemAuditAutoRepair(project.id)) {
+            setAutoAuditRepairSeed(seed);
+          }
         }
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
@@ -2131,6 +2163,23 @@ export function ProjectView({
       onProjectsRefresh,
     ],
   );
+
+  useEffect(() => {
+    if (!autoAuditRepairSeed) return;
+    if (!activeConversationId) return;
+    if (!messagesInitialized) return;
+    if (currentConversationBusy) return;
+    const repairText = autoAuditRepairSeed.value.trim();
+    setAutoAuditRepairSeed(null);
+    if (!repairText) return;
+    void handleSend(repairText, [], []);
+  }, [
+    activeConversationId,
+    autoAuditRepairSeed,
+    currentConversationBusy,
+    handleSend,
+    messagesInitialized,
+  ]);
 
   const handleSendBoardCommentAttachments = useCallback(
     async (commentAttachments: ChatCommentAttachment[]) => {
@@ -2995,6 +3044,9 @@ export function ProjectView({
       return;
     }
     autoSentRef.current = true;
+    if (isDesignSystemWorkspaceMetadata(project.metadata)) {
+      markDesignSystemAuditAutoRepairEligible(project.id);
+    }
     clearAutoSendSession(project.id);
     autoSendAttachmentsRef.current = [];
     void handleSend(seed, attachments, []);
@@ -3004,6 +3056,7 @@ export function ProjectView({
     streaming,
     messages.length,
     project.id,
+    project.metadata,
     initialDraft,
     project.pendingPrompt,
     handleSend,

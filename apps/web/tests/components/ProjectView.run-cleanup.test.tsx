@@ -407,7 +407,7 @@ describe('ProjectView daemon cleanup', () => {
     }
   });
 
-  it('audits design-system workspace output after first auto-send and seeds the repair prompt', async () => {
+  it('audits design-system workspace output after first auto-send and auto-sends one repair prompt', async () => {
     listConversations.mockResolvedValue([{ id: 'conv-1', title: 'Conversation' }]);
     listMessages.mockResolvedValue([]);
     fetchPreviewComments.mockResolvedValue([]);
@@ -476,6 +476,14 @@ describe('ProjectView daemon cleanup', () => {
     );
 
     await waitFor(() => expect(fetchProjectDesignSystemPackageAudit).toHaveBeenCalledWith('project-ds'));
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(2));
+    expect(saveMessage.mock.calls.some((call) =>
+      call[2]?.role === 'user'
+      && typeof call[2]?.content === 'string'
+      && call[2].content.includes('Fix the design-system package audit findings below.')
+      && call[2].content.includes('ui_kit_index_missing_runtime_bootstrap'),
+    )).toBe(true);
+    expect(window.sessionStorage.getItem('od:design-system-audit-auto-repair:project-ds')).toBeNull();
     await waitFor(() => {
       const repairSeed = chatPaneSpy.mock.calls.find(
         (call) => typeof call[0]?.initialDraft === 'string'

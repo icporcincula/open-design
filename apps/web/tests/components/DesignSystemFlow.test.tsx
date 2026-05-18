@@ -1211,6 +1211,42 @@ describe('DesignSystemCreationFlow', () => {
     expect(mocks.fetchConnectorDetail).not.toHaveBeenCalled();
   });
 
+  it('stops checking GitHub connector if the status request hangs', async () => {
+    const originalSetTimeout = window.setTimeout;
+    type WindowSetTimeout = typeof window.setTimeout;
+    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((...params: Parameters<WindowSetTimeout>) => {
+      const [handler, timeout, ...args] = params;
+      if (timeout === 5000 && typeof handler === 'function') {
+        handler(...args);
+        return 1;
+      }
+      return originalSetTimeout(...params);
+    }) as typeof window.setTimeout);
+    mocks.fetchConnectorDetail.mockReturnValue(new Promise(() => {}));
+    const config = {
+      composio: { apiKeyConfigured: true, apiKeyTail: 'uQEg' },
+    } as AppConfig;
+
+    try {
+      render(
+        <DesignSystemCreationFlow
+          onBack={() => {}}
+          onCreated={() => {}}
+          config={config}
+        />,
+      );
+
+      expect(screen.getByText('Checking GitHub connector')).toBeTruthy();
+
+      await waitFor(() => expect(screen.getByText('Composio key configured')).toBeTruthy());
+      expect(screen.queryByText('Checking GitHub connector')).toBeNull();
+      expect(screen.getByText(/Could not finish checking GitHub connector/i)).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeTruthy();
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it('keeps GitHub repo links available and shows connected connector status', async () => {
     const availableConnector: ConnectorDetail = {
       id: 'github',
