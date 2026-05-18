@@ -2,6 +2,7 @@
 // schedule, mints a conversation (in either an existing project or a freshly
 // created one), and runs the configured prompt as an agent task.
 
+import type { AutomationSourceIngestionResponse } from './automations.js';
 import type { RunContextSelection } from './context.js';
 
 export type RoutineScheduleKind =
@@ -152,4 +153,9 @@ export interface RoutineRunResponse {
 
 export interface RoutineRunsResponse {
   runs: RoutineRun[];
+}
+
+export interface RoutineRunCrystallizeResponse extends AutomationSourceIngestionResponse {
+  routineId: string;
+  runId: string;
 }

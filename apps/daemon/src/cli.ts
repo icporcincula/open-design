@@ -155,9 +155,18 @@ const PROJECT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'follow']);
 const AUTOMATION_STRING_FLAGS = new Set([
   'daemon-url', 'name', 'prompt', 'prompt-file', 'schedule', 'target',
   'project', 'skill', 'agent', 'limit', 'plugin', 'mcp', 'connector',
+  'status', 'reason', 'template', 'source-kind', 'source-ref', 'title',
+  'body', 'body-file', 'compression', 'sensitivity', 'account',
+  'candidate-sinks', 'memory-type',
 ]);
 const AUTOMATION_BOOLEAN_FLAGS = new Set([
   'help', 'h', 'json', 'disabled', 'enabled',
+]);
+const MEMORY_STRING_FLAGS = new Set([
+  'daemon-url', 'name', 'description', 'type', 'body', 'body-file',
+]);
+const MEMORY_BOOLEAN_FLAGS = new Set([
+  'help', 'h', 'json',
 ]);
 // Hoisted because `runAutomation` is reachable through the top-of-file
 // SUBCOMMAND_MAP dispatch, which runs during module evaluation —
@@ -200,6 +209,7 @@ const SUBCOMMAND_MAP = {
   project: runProject,
   automation: runAutomation,
   automations: runAutomation,
+  memory: runMemory,
   run: runRun,
   files: runFiles,
   conversation: runConversation,
@@ -342,6 +352,9 @@ function printRootHelp() {
       Automations tab, so an external agent (hermes, openclaw, ...) can
       schedule, trigger, or harvest results from a routine without
       opening the web UI.
+
+  od memory tree <list|view|edit|move> [args]
+      Inspect and edit the memory tree that is injected into agent prompts.
 
   od ui <list|show|respond|revoke|prefill> [args]
       Read and answer GenUI surfaces (form / choice / confirmation / oauth-prompt) headlessly.
@@ -4764,6 +4777,224 @@ Common options:
 }
 
 // ---------------------------------------------------------------------------
+// Subcommand: od memory …
+//
+// Headless surface for the same editable markdown memory tree shown in
+// Settings. Agents can inspect what will be injected into future prompts,
+// edit a node, or move a node between memory buckets without scraping the UI.
+// ---------------------------------------------------------------------------
+
+function printMemoryHelp() {
+  console.log(`Usage:
+  od memory tree list [--json]
+      List derived memory-tree folders and entry nodes.
+
+  od memory tree view <id> [--json]
+      Print one folder node or entry body.
+
+  od memory tree edit <id> [--name <title>] [--description <text>]
+                       [--type user|feedback|project|reference]
+                       [--body <markdown> | --body-file <path|->] [--json]
+      Patch an editable entry node. Folder nodes are derived from entry types.
+
+  od memory tree move <id> --type user|feedback|project|reference [--json]
+      Move an entry node to a different memory bucket while preserving its id.
+
+Common options:
+  --daemon-url <url>   Open Design daemon HTTP base.`);
+}
+
+function memoryPositionals(values) {
+  const out = [];
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
+    if (!value) continue;
+    if (value.startsWith('--')) {
+      const eq = value.indexOf('=');
+      const key = eq >= 0 ? value.slice(2, eq) : value.slice(2);
+      if (eq < 0 && MEMORY_STRING_FLAGS.has(key)) i++;
+      continue;
+    }
+    out.push(value);
+  }
+  return out;
+}
+
+async function readMemoryBodyFromFlags(flags) {
+  if (typeof flags.body === 'string') return flags.body;
+  if (typeof flags['body-file'] !== 'string') return undefined;
+  const path = flags['body-file'];
+  if (path === '-') {
+    let body = '';
+    for await (const chunk of process.stdin) body += chunk;
+    return body;
+  }
+  const { readFile } = await import('node:fs/promises');
+  return await readFile(path, 'utf8');
+}
+
+function formatMemoryTreeRow(node) {
+  return [
+    node.id,
+    node.parentId ?? '-',
+    node.path,
+    node.kind,
+    node.type ?? '-',
+    node.scope,
+    node.name,
+  ].join('\t');
+}
+
+function printMemoryEntry(entry) {
+  console.log(`# ${entry.name}`);
+  console.log(`id: ${entry.id}`);
+  console.log(`type: ${entry.type}`);
+  console.log(`description: ${entry.description || '-'}`);
+  console.log('');
+  process.stdout.write(`${entry.body ?? ''}\n`);
+}
+
+async function fetchMemoryTree(base) {
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/memory/tree`);
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  return await resp.json();
+}
+
+async function patchMemoryTreeNode(base, id, body) {
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/memory/tree/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  return await resp.json();
+}
+
+async function runMemory(args) {
+  if (args.length === 0 || args[0] === 'help' || args.includes('--help') || args.includes('-h')) {
+    printMemoryHelp();
+    process.exit(args.length === 0 ? 2 : 0);
+  }
+  const topic = args[0];
+  if (topic !== 'tree') {
+    console.error(`unknown subcommand: od memory ${topic}`);
+    printMemoryHelp();
+    process.exit(2);
+  }
+  const rest = args.slice(1);
+  let flags;
+  try {
+    flags = parseFlags(rest, {
+      string: MEMORY_STRING_FLAGS,
+      boolean: MEMORY_BOOLEAN_FLAGS,
+    });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  const writeJson = (data) =>
+    process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+  const parts = memoryPositionals(rest);
+  const action = parts[0] ?? 'list';
+
+  if (action === 'list') {
+    const data = await fetchMemoryTree(base);
+    if (flags.json) return writeJson(data);
+    const tree = data.tree ?? [];
+    if (tree.length === 0) {
+      console.log('No memory tree nodes.');
+      return;
+    }
+    console.log('# id\tparent\tpath\tkind\ttype\tscope\tname');
+    for (const node of tree) console.log(formatMemoryTreeRow(node));
+    return;
+  }
+
+  if (action === 'view') {
+    const id = parts[1];
+    if (!id) {
+      console.error('Usage: od memory tree view <id>');
+      process.exit(2);
+    }
+    const treeData = await fetchMemoryTree(base);
+    const node = (treeData.tree ?? []).find((item) => item.id === id);
+    if (!node) {
+      console.error(`memory tree node not found: ${id}`);
+      process.exit(4);
+    }
+    if (node.kind === 'folder') {
+      if (flags.json) return writeJson({ node });
+      console.log(`${node.path}\t${node.name}\t${node.childrenCount ?? 0} children`);
+      return;
+    }
+    let resp;
+    try {
+      resp = await fetch(`${base}/api/memory/${encodeURIComponent(id)}`);
+    } catch (err) {
+      surfaceFetchError(err, base);
+      process.exit(3);
+    }
+    if (!resp.ok) return structuredHttpFailure(resp);
+    const data = await resp.json();
+    if (flags.json) return writeJson(data);
+    printMemoryEntry(data.entry ?? data);
+    return;
+  }
+
+  if (action === 'edit') {
+    const id = parts[1];
+    if (!id) {
+      console.error('Usage: od memory tree edit <id> [--name ...] [--description ...] [--type ...] [--body ...|--body-file ...]');
+      process.exit(2);
+    }
+    const body = {};
+    if (typeof flags.name === 'string') body.name = flags.name;
+    if (typeof flags.description === 'string') body.description = flags.description;
+    if (typeof flags.type === 'string') body.type = flags.type;
+    const nextBody = await readMemoryBodyFromFlags(flags);
+    if (typeof nextBody === 'string') body.body = nextBody;
+    if (Object.keys(body).length === 0) {
+      console.error('nothing to edit; pass --name, --description, --type, --body, or --body-file');
+      process.exit(2);
+    }
+    const data = await patchMemoryTreeNode(base, id, body);
+    if (flags.json) return writeJson(data);
+    console.log(`[memory] updated ${data.entry?.id ?? id}`);
+    return;
+  }
+
+  if (action === 'move') {
+    const id = parts[1];
+    const type = flags.type ?? parts[2];
+    if (!id || !type) {
+      console.error('Usage: od memory tree move <id> --type user|feedback|project|reference');
+      process.exit(2);
+    }
+    const data = await patchMemoryTreeNode(base, id, { type });
+    if (flags.json) return writeJson(data);
+    console.log(`[memory] moved ${data.entry?.id ?? id} to ${data.entry?.type ?? type}`);
+    return;
+  }
+
+  console.error(`unknown subcommand: od memory tree ${action}`);
+  printMemoryHelp();
+  process.exit(2);
+}
+
+// ---------------------------------------------------------------------------
 // Subcommand: od automation …
 //
 // Headless surface for the Automations tab. This is the dual-track contract:
@@ -4940,6 +5171,19 @@ async function readPromptFromFlags(flags) {
 
 function printAutomationHelp() {
   console.log(`Usage:
+  od automation template list                                List built-in automation templates.
+  od automation template get <id>                            Print one built-in automation template.
+  od automation source ingest --source-kind <kind> --title <title>
+                              [--source-ref <ref>] [--template <id>]
+                              [--body <markdown> | --body-file <path|->]
+                              [--connector <id>] [--compression off|balanced|aggressive]
+                              [--json]
+  od automation source list [--limit 20] [--json]             List ingested source packets.
+  od automation source get <id> [--json]                      Print one source packet.
+  od automation proposal list [--status pending-review]       List self-evolution proposals.
+  od automation proposal get <id>                             Print one proposal.
+  od automation proposal apply <id>                           Apply a reviewable proposal.
+  od automation proposal reject <id> [--reason "<why>"]       Reject a reviewable proposal.
   od automation list                                         List automations.
   od automation get <id>                                     Print one automation.
   od automation create --name "<title>" --prompt "<text>"
@@ -4957,6 +5201,7 @@ function printAutomationHelp() {
                             Patch fields.
   od automation run <id>                                       Trigger a manual run; prints projectId/conversationId.
   od automation runs <id> [--limit 10]                         Print run history.
+  od automation crystallize-run <routineId> <runId> [--json]    Turn a succeeded run into skill/memory proposals.
   od automation pause <id>                                     Mark disabled.
   od automation resume <id>                                    Mark enabled.
   od automation delete <id>                                    Remove the automation (history retained).
@@ -5024,7 +5269,262 @@ async function runAutomation(args) {
     return id;
   };
 
+  const readAutomationIngestBody = async () => {
+    const direct = await readMemoryBodyFromFlags(flags);
+    if (typeof direct === 'string') return direct;
+    return await readPromptFromFlags(flags);
+  };
+
   switch (sub) {
+    case 'template':
+    case 'templates': {
+      const parts = positionalArgs(rest);
+      const action = parts[0] ?? 'list';
+      if (action === 'list') {
+        let resp;
+        try {
+          resp = await fetch(`${base}/api/automation-templates`);
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return writeJson(data);
+        const templates = data.templates ?? [];
+        if (templates.length === 0) {
+          console.log('No automation templates available.');
+          return;
+        }
+        console.log('# id\ttitle\ttriggers\tsources\toutputs\tcompression\treview');
+        for (const template of templates) {
+          console.log([
+            template.id,
+            template.title,
+            (template.triggerKinds ?? []).join(','),
+            (template.sourceKinds ?? []).join(','),
+            (template.outputSinks ?? []).join(','),
+            template.tokenCompression,
+            template.reviewPolicy,
+          ].join('\t'));
+        }
+        return;
+      }
+      if (action === 'get') {
+        const id = parts[1];
+        if (!id) {
+          console.error('Usage: od automation template get <id>');
+          process.exit(2);
+        }
+        let resp;
+        try {
+          resp = await fetch(`${base}/api/automation-templates/${encodeURIComponent(id)}`);
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        return writeJson(flags.json ? data : (data.template ?? data));
+      }
+      console.error(`unknown subcommand: od automation template ${action}`);
+      printAutomationHelp();
+      process.exit(2);
+    }
+    case 'ingest':
+    case 'source':
+    case 'sources': {
+      const parts = positionalArgs(rest);
+      const action = sub === 'ingest' ? 'ingest' : (parts[0] ?? 'list');
+      if (action === 'ingest') {
+        const sourceKind = flags['source-kind'] ?? (sub === 'ingest' ? parts[0] : parts[1]);
+        if (!sourceKind) {
+          console.error('Usage: od automation source ingest --source-kind <kind> --body-file <path|->');
+          process.exit(2);
+        }
+        const bodyMarkdown = await readAutomationIngestBody();
+        if (!bodyMarkdown) {
+          console.error('--body, --body-file, --prompt, or --prompt-file is required');
+          process.exit(2);
+        }
+        const candidateSinks = typeof flags['candidate-sinks'] === 'string'
+          ? flags['candidate-sinks'].split(',').map((item) => item.trim()).filter(Boolean)
+          : undefined;
+        let resp;
+        try {
+          resp = await fetch(`${base}/api/automation-ingestions`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              templateId: flags.template,
+              sourceKind,
+              sourceRef: flags['source-ref'],
+              title: flags.title ?? flags.name,
+              bodyMarkdown,
+              projectId: flags.project,
+              connectorId: flags.connector,
+              accountLabel: flags.account,
+              sensitivity: flags.sensitivity,
+              tokenCompression: flags.compression,
+              candidateSinks,
+              memoryType: flags['memory-type'],
+            }),
+          });
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return writeJson(data);
+        console.log(`[automation source] ingested ${data.packet?.id}`);
+        console.log(`compression: ${data.compressionReport?.status ?? 'unknown'} (${data.compressionReport?.beforeTokens ?? 0} -> ${data.compressionReport?.afterTokens ?? 0} tokens)`);
+        const proposals = data.proposals ?? [];
+        if (proposals.length > 0) {
+          console.log('# proposals');
+          for (const proposal of proposals) {
+            console.log([
+              proposal.id,
+              proposal.targetKind,
+              proposal.action,
+              proposal.status,
+              proposal.title,
+            ].join('\t'));
+          }
+        }
+        return;
+      }
+      if (action === 'list') {
+        const query = flags.limit ? `?limit=${encodeURIComponent(String(flags.limit))}` : '';
+        let resp;
+        try {
+          resp = await fetch(`${base}/api/automation-source-packets${query}`);
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return writeJson(data);
+        const packets = data.packets ?? [];
+        if (packets.length === 0) {
+          console.log('No automation source packets.');
+          return;
+        }
+        console.log('# id\tkind\tcapturedAt\ttokens\ttitle');
+        for (const packet of packets) {
+          console.log([
+            packet.id,
+            packet.sourceKind,
+            packet.capturedAt,
+            packet.tokenStats?.originalTokens ?? 0,
+            packet.title,
+          ].join('\t'));
+        }
+        return;
+      }
+      if (action === 'get') {
+        const id = parts[1];
+        if (!id) {
+          console.error('Usage: od automation source get <id>');
+          process.exit(2);
+        }
+        let resp;
+        try {
+          resp = await fetch(`${base}/api/automation-source-packets/${encodeURIComponent(id)}`);
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        return writeJson(await resp.json());
+      }
+      console.error(`unknown subcommand: od automation source ${action}`);
+      printAutomationHelp();
+      process.exit(2);
+    }
+    case 'proposal':
+    case 'proposals': {
+      const parts = positionalArgs(rest);
+      const action = parts[0] ?? 'list';
+      if (action === 'list') {
+        const query = flags.status ? `?status=${encodeURIComponent(String(flags.status))}` : '';
+        let resp;
+        try {
+          resp = await fetch(`${base}/api/automation-proposals${query}`);
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return writeJson(data);
+        const proposals = data.proposals ?? [];
+        if (proposals.length === 0) {
+          console.log('No automation proposals.');
+          return;
+        }
+        console.log('# id\tstatus\ttarget\taction\tupdatedAt\ttitle');
+        for (const proposal of proposals) {
+          console.log([
+            proposal.id,
+            proposal.status,
+            proposal.targetKind,
+            proposal.action,
+            proposal.updatedAt,
+            proposal.title,
+          ].join('\t'));
+        }
+        return;
+      }
+      if (action === 'get') {
+        const id = parts[1];
+        if (!id) {
+          console.error('Usage: od automation proposal get <id>');
+          process.exit(2);
+        }
+        let resp;
+        try {
+          resp = await fetch(`${base}/api/automation-proposals/${encodeURIComponent(id)}`);
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        return writeJson(await resp.json());
+      }
+      if (action === 'apply' || action === 'reject') {
+        const id = parts[1];
+        if (!id) {
+          console.error(`Usage: od automation proposal ${action} <id>`);
+          process.exit(2);
+        }
+        let resp;
+        try {
+          resp = await fetch(
+            `${base}/api/automation-proposals/${encodeURIComponent(id)}/${action}`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: action === 'reject'
+                ? JSON.stringify({ reason: flags.reason ?? '' })
+                : '{}',
+            },
+          );
+        } catch (err) {
+          surfaceFetchError(err, base);
+          process.exit(3);
+        }
+        if (!resp.ok) return structuredHttpFailure(resp);
+        const data = await resp.json();
+        if (flags.json) return writeJson(data);
+        console.log(`[automation proposal] ${action === 'apply' ? 'applied' : 'rejected'} ${data.proposal?.id ?? id}`);
+        return;
+      }
+      console.error(`unknown subcommand: od automation proposal ${action}`);
+      printAutomationHelp();
+      process.exit(2);
+    }
     case 'list': {
       let resp;
       try {
@@ -5090,6 +5590,45 @@ async function runAutomation(args) {
           r.projectId,
           r.conversationId,
         ].join('\t'));
+      }
+      return;
+    }
+    case 'crystallize-run': {
+      const parts = positionalArgs(rest);
+      const routineId = parts[0];
+      const runId = parts[1];
+      if (!routineId || !runId) {
+        console.error('Usage: od automation crystallize-run <routineId> <runId> [--json]');
+        process.exit(2);
+      }
+      let resp;
+      try {
+        resp = await fetch(
+          `${base}/api/routines/${encodeURIComponent(routineId)}/runs/${encodeURIComponent(runId)}/crystallize`,
+          { method: 'POST' },
+        );
+      } catch (err) {
+        surfaceFetchError(err, base);
+        process.exit(3);
+      }
+      if (!resp.ok) return structuredHttpFailure(resp);
+      const data = await resp.json();
+      if (flags.json) return writeJson(data);
+      console.log(`[automation] crystallized ${runId}`);
+      console.log(`sourcePacket\t${data.packet?.id ?? ''}`);
+      console.log(`compression\t${data.compressionReport?.status ?? 'unknown'}\t${data.compressionReport?.beforeTokens ?? 0}->${data.compressionReport?.afterTokens ?? 0}`);
+      const proposals = data.proposals ?? [];
+      if (proposals.length > 0) {
+        console.log('# proposals');
+        for (const proposal of proposals) {
+          console.log([
+            proposal.id,
+            proposal.targetKind,
+            proposal.action,
+            proposal.status,
+            proposal.title,
+          ].join('\t'));
+        }
       }
       return;
     }

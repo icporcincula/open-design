@@ -87,6 +87,7 @@ import {
   revokeProjectSurface,
 } from './genui/index.js';
 import {
+  buildMemoryTree,
   composeMemoryBody,
   deleteMemoryEntry,
   extractFromMessage,
@@ -97,6 +98,7 @@ import {
   readMemoryConfig,
   readMemoryEntry,
   readMemoryIndex,
+  updateMemoryTreeNode,
   upsertMemoryEntry,
   writeMemoryConfig,
   writeMemoryIndex,
@@ -108,6 +110,19 @@ import {
 } from './memory-extractions.js';
 import { attachAcpSession } from './acp.js';
 import { attachPiRpcSession } from './pi-rpc.js';
+import {
+  applyAutomationProposal,
+  createAutomationProposal,
+  getAutomationProposal,
+  listAutomationProposals,
+  rejectAutomationProposal,
+} from './automation-proposals.js';
+import {
+  getAutomationSourcePacket,
+  ingestAutomationSource,
+  listAutomationSourcePackets,
+} from './automation-ingestions.js';
+import { ingestRoutineConnectorEvolution } from './automation-routine-evolution.js';
 import { createClaudeStreamHandler } from './claude-stream.js';
 import { diagnoseClaudeCliFailure } from './claude-diagnostics.js';
 import { loadCritiqueConfigFromEnv } from './critique/config.js';
@@ -3270,6 +3285,38 @@ export async function startServer({
   // Static sub-resources (`/index`, `/config`, `/extract`) registered
   // BEFORE the `:id` catch-alls so an `index` / `config` / `extract` slug
   // can't shadow the real handlers.
+  app.get('/api/memory/tree', async (_req, res) => {
+    try {
+      const [config, tree] = await Promise.all([
+        readMemoryConfig(RUNTIME_DATA_DIR),
+        buildMemoryTree(RUNTIME_DATA_DIR),
+      ]);
+      res.json({
+        enabled: config.enabled,
+        rootDir: memoryDir(RUNTIME_DATA_DIR),
+        tree,
+      });
+    } catch (err) {
+      res.status(500).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.patch('/api/memory/tree/:id', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const entry = await updateMemoryTreeNode(
+        RUNTIME_DATA_DIR,
+        req.params.id,
+        body,
+      );
+      const tree = await buildMemoryTree(RUNTIME_DATA_DIR);
+      res.json({ entry, tree });
+    } catch (err) {
+      const message = String((err && err.message) || err);
+      res.status(message === 'memory not found' ? 404 : 400).json({ error: message });
+    }
+  });
+
   app.put('/api/memory/index', async (req, res) => {
     try {
       const body = req.body && typeof req.body === 'object' ? req.body : {};
@@ -3511,6 +3558,95 @@ export async function startServer({
       res.json({ body });
     } catch (err) {
       res.status(500).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.get('/api/automation-source-packets', async (req, res) => {
+    try {
+      const limit = typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined;
+      const packets = await listAutomationSourcePackets(RUNTIME_DATA_DIR, { limit });
+      res.json({ packets });
+    } catch (err) {
+      res.status(500).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.post('/api/automation-ingestions', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const result = await ingestAutomationSource(RUNTIME_DATA_DIR, body);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.get('/api/automation-source-packets/:id', async (req, res) => {
+    try {
+      const packet = await getAutomationSourcePacket(RUNTIME_DATA_DIR, req.params.id);
+      if (!packet) return res.status(404).json({ error: 'automation source packet not found' });
+      res.json({ packet });
+    } catch (err) {
+      res.status(400).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.get('/api/automation-proposals', async (req, res) => {
+    try {
+      const rawStatus = typeof req.query.status === 'string' ? req.query.status : 'all';
+      const proposals = await listAutomationProposals(RUNTIME_DATA_DIR, {
+        status: rawStatus,
+      });
+      res.json({ proposals });
+    } catch (err) {
+      res.status(500).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.post('/api/automation-proposals', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const proposal = await createAutomationProposal(RUNTIME_DATA_DIR, body);
+      res.json({ proposal });
+    } catch (err) {
+      res.status(400).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.get('/api/automation-proposals/:id', async (req, res) => {
+    try {
+      const proposal = await getAutomationProposal(RUNTIME_DATA_DIR, req.params.id);
+      if (!proposal) return res.status(404).json({ error: 'automation proposal not found' });
+      res.json({ proposal });
+    } catch (err) {
+      res.status(400).json({ error: String((err && err.message) || err) });
+    }
+  });
+
+  app.post('/api/automation-proposals/:id/apply', async (req, res) => {
+    try {
+      const result = await applyAutomationProposal(RUNTIME_DATA_DIR, req.params.id);
+      res.json(result);
+    } catch (err) {
+      const message = String((err && err.message) || err);
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/automation-proposals/:id/reject', async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const proposal = await rejectAutomationProposal(
+        RUNTIME_DATA_DIR,
+        req.params.id,
+        typeof body.reason === 'string' ? body.reason : undefined,
+      );
+      res.json({ proposal });
+    } catch (err) {
+      const message = String((err && err.message) || err);
+      const status = message.includes('not found') ? 404 : 400;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -4266,7 +4402,7 @@ export async function startServer({
 
   app.get('/api/skills', async (_req, res) => {
     try {
-      const skills = await listSkills(SKILLS_DIR);
+      const skills = await listAllSkills();
       // Strip full body + on-disk dir from the listing — frontend fetches the
       // body via /api/skills/:id when needed (keeps the listing payload small).
       res.json({
@@ -4282,7 +4418,7 @@ export async function startServer({
 
   app.get('/api/skills/:id', async (req, res) => {
     try {
-      const skills = await listSkills(SKILLS_DIR);
+      const skills = await listAllSkills();
       const skill = findSkillById(skills, req.params.id);
       if (!skill) return res.status(404).json({ error: 'skill not found' });
       const { dir: _dir, ...serializable } = skill;
@@ -4368,7 +4504,7 @@ export async function startServer({
 
   app.get('/api/design-systems', async (_req, res) => {
     try {
-      const systems = await listDesignSystems(DESIGN_SYSTEMS_DIR);
+      const systems = await listAllDesignSystems();
       res.json({
         designSystems: systems.map(({ body, ...rest }) => rest),
       });
@@ -4379,7 +4515,9 @@ export async function startServer({
 
   app.get('/api/design-systems/:id', async (req, res) => {
     try {
-      const body = await readDesignSystem(DESIGN_SYSTEMS_DIR, req.params.id);
+      const body =
+        (await readDesignSystem(DESIGN_SYSTEMS_DIR, req.params.id)) ??
+        (await readDesignSystem(USER_DESIGN_SYSTEMS_DIR, req.params.id));
       if (body === null)
         return res.status(404).json({ error: 'design system not found' });
       res.json({ id: req.params.id, body });
@@ -4759,8 +4897,8 @@ export async function startServer({
   // first-party catalog. Project-scoped overrides arrive in Phase 4.
   async function loadPluginRegistryView() {
     const [skills, designSystems] = await Promise.all([
-      listSkills(SKILLS_DIR),
-      listDesignSystems(DESIGN_SYSTEMS_DIR),
+      listAllSkills(),
+      listAllDesignSystems(),
     ]);
     // Spec §23.3.3: surface the bundled scenario plugins so apply()
     // can fall back to the matching scenario's pipeline when the
@@ -5963,7 +6101,9 @@ export async function startServer({
   // file shows up on the next view, no rebuild needed.
   app.get('/api/design-systems/:id/preview', async (req, res) => {
     try {
-      const body = await readDesignSystem(DESIGN_SYSTEMS_DIR, req.params.id);
+      const body =
+        (await readDesignSystem(DESIGN_SYSTEMS_DIR, req.params.id)) ??
+        (await readDesignSystem(USER_DESIGN_SYSTEMS_DIR, req.params.id));
       if (body === null)
         return res.status(404).type('text/plain').send('not found');
       const html = renderDesignSystemPreview(req.params.id, body);
@@ -5978,7 +6118,9 @@ export async function startServer({
   // /preview: built at request time, no caching.
   app.get('/api/design-systems/:id/showcase', async (req, res) => {
     try {
-      const body = await readDesignSystem(DESIGN_SYSTEMS_DIR, req.params.id);
+      const body =
+        (await readDesignSystem(DESIGN_SYSTEMS_DIR, req.params.id)) ??
+        (await readDesignSystem(USER_DESIGN_SYSTEMS_DIR, req.params.id));
       if (body === null)
         return res.status(404).type('text/plain').send('not found');
       const html = renderDesignSystemShowcase(req.params.id, body);
@@ -6017,7 +6159,7 @@ export async function startServer({
   //      a real preview on its parent card instead of returning 404.
   app.get('/api/skills/:id/example', async (req, res) => {
     try {
-      const skills = await listSkills(SKILLS_DIR);
+      const skills = await listAllSkills();
 
       // 1. Derived `<parent>:<child>` id — resolve straight to the matching
       // file under <parentDir>/examples/. Done before findSkillById so the
@@ -6139,7 +6281,7 @@ export async function startServer({
   // contributors can preview `example.html` straight from disk.
   app.get('/api/skills/:id/assets/*', async (req, res) => {
     try {
-      const skills = await listSkills(SKILLS_DIR);
+      const skills = await listAllSkills();
       const skill = findSkillById(skills, req.params.id);
       if (!skill) {
         return res.status(404).type('text/plain').send('skill not found');
@@ -9910,7 +10052,7 @@ export async function startServer({
 
   // Each routine fire resolves an agent, prepares project/conversation state,
   // and dispatches into the same chat runner used by manual runs.
-  routineService.setRunHandler(async ({ routine, trigger, startedAt }) => {
+  routineService.setRunHandler(async ({ routine, trigger, startedAt, runId }) => {
     const appConfig = await readAppConfig(RUNTIME_DATA_DIR);
     let agentId = routine.agentId
       || (typeof appConfig.agentId === 'string' && appConfig.agentId ? appConfig.agentId : null);
@@ -10091,9 +10233,31 @@ export async function startServer({
       const finalStatus = await design.runs.wait(run);
       db.prepare(`UPDATE messages SET run_status = ?, ended_at = ? WHERE id = ?`)
         .run(finalStatus.status, Date.now(), assistantMessageId);
+      let evolutionSummary = '';
+      if (finalStatus.status === 'succeeded' && routineContext.connectorIds?.length) {
+        try {
+          const evolution = await ingestRoutineConnectorEvolution(RUNTIME_DATA_DIR, {
+            routine,
+            runId,
+            trigger,
+            status: finalStatus.status,
+            projectId,
+            conversationId,
+            agentRunId: run.id,
+            summary: `Routine "${routine.name}" ${finalStatus.status}.`,
+            connectorIds: routineContext.connectorIds,
+            messages: listMessages(db, conversationId),
+          });
+          if (evolution?.proposals?.length) {
+            evolutionSummary = ` Created ${evolution.proposals.length} self-evolution proposal(s) from connector context.`;
+          }
+        } catch (error) {
+          evolutionSummary = ` Connector self-evolution ingestion failed: ${error instanceof Error ? error.message : String(error)}.`;
+        }
+      }
       return {
         status: finalStatus.status,
-        summary: `Routine "${routine.name}" ${finalStatus.status}.`,
+        summary: `Routine "${routine.name}" ${finalStatus.status}.${evolutionSummary}`,
       };
     })();
 
@@ -10146,6 +10310,7 @@ export async function startServer({
 
   registerRoutineRoutes(app, {
     db,
+    paths: { RUNTIME_DATA_DIR },
     routines: { routineService },
   });
 

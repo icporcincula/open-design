@@ -1,23 +1,31 @@
 import type { Express } from 'express';
 import { randomUUID } from 'node:crypto';
 import {
+  getAnyAutomationTemplate,
+  listAllAutomationTemplates,
+} from './automation-templates.js';
+import {
   deleteRoutine as dbDeleteRoutine,
   getLatestRoutineRun,
   getProject,
   getRoutine,
+  getRoutineRun,
   insertRoutine,
   listRoutineRuns,
   listRoutines,
   updateRoutine,
 } from './db.js';
+import { ingestAutomationSource } from './automation-ingestions.js';
 import {
   validateSchedule as validateRoutineSchedule,
   validateTarget as validateRoutineTarget,
   type RoutineService,
 } from './routines.js';
-import type { RouteDeps } from './server-context.js';
+import type { PathDeps, RouteDeps } from './server-context.js';
 
-export interface RegisterRoutineRoutesDeps extends RouteDeps<'db' | 'routines'> {}
+export interface RegisterRoutineRoutesDeps extends RouteDeps<'db' | 'routines'> {
+  paths: Pick<PathDeps, 'RUNTIME_DATA_DIR'>;
+}
 
 export type RoutineRoutesService = Pick<
   RoutineService,
@@ -117,6 +125,29 @@ export function routineDbRowToContract(row: any, latestRun: any) {
 export function registerRoutineRoutes(app: Express, ctx: RegisterRoutineRoutesDeps) {
   const { db } = ctx;
   const { routineService } = ctx.routines;
+
+  app.get('/api/automation-templates', async (_req, res) => {
+    try {
+      res.json({
+        templates: await listAllAutomationTemplates(ctx.paths.RUNTIME_DATA_DIR),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message ?? err) });
+    }
+  });
+
+  app.get('/api/automation-templates/:id', async (req, res) => {
+    try {
+      const template = await getAnyAutomationTemplate(
+        ctx.paths.RUNTIME_DATA_DIR,
+        req.params.id,
+      );
+      if (!template) return res.status(404).json({ error: 'automation template not found' });
+      res.json({ template });
+    } catch (err: any) {
+      res.status(500).json({ error: String(err?.message ?? err) });
+    }
+  });
 
   function scheduleToDbCols(schedule: any) {
     const json = JSON.stringify(schedule);
@@ -261,5 +292,54 @@ export function registerRoutineRoutes(app: Express, ctx: RegisterRoutineRoutesDe
     if (!existing) return res.status(404).json({ error: 'routine not found' });
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     res.json({ runs: listRoutineRuns(db, req.params.id, limit) });
+  });
+
+  app.post('/api/routines/:id/runs/:runId/crystallize', async (req, res) => {
+    try {
+      const routine = getRoutine(db, req.params.id);
+      if (!routine) return res.status(404).json({ error: 'routine not found' });
+      const run = getRoutineRun(db, req.params.runId);
+      if (!run || run.routineId !== req.params.id) {
+        return res.status(404).json({ error: 'routine run not found' });
+      }
+      if (run.status !== 'succeeded') {
+        return res.status(400).json({ error: 'only succeeded routine runs can be crystallized' });
+      }
+      const bodyMarkdown = [
+        `# ${routine.name} reusable workflow`,
+        '',
+        `Routine id: ${routine.id}`,
+        `Routine run: ${run.id}`,
+        `Project id: ${run.projectId}`,
+        `Conversation id: ${run.conversationId}`,
+        `Agent run id: ${run.agentRunId}`,
+        '',
+        '## Original Automation Prompt',
+        '',
+        routine.prompt,
+        '',
+        '## Run Summary',
+        '',
+        run.summary || 'No run summary was recorded; crystallize from the automation prompt and run metadata.',
+      ].join('\n');
+      const result = await ingestAutomationSource(ctx.paths.RUNTIME_DATA_DIR, {
+        templateId: 'crystallize-run-into-skill',
+        sourceKind: 'chat',
+        sourceRef: `routine-run:${run.id}`,
+        title: `${routine.name} run`,
+        bodyMarkdown,
+        projectId: run.projectId,
+        conversationId: run.conversationId,
+        tokenCompression: 'balanced',
+        metadata: {
+          routineId: routine.id,
+          routineRunId: run.id,
+          agentRunId: run.agentRunId,
+        },
+      });
+      res.json({ ...result, routineId: routine.id, runId: run.id });
+    } catch (err: any) {
+      res.status(400).json({ error: String(err?.message ?? err) });
+    }
   });
 }

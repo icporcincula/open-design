@@ -603,7 +603,7 @@ export function NewAutomationModal({
         </header>
 
         <div className="automation-modal__body">
-          <div className="automation-modal__prompt-wrap">
+          <div className={`automation-modal__prompt-wrap${mention ? ' is-mentioning' : ''}`}>
             <textarea
               ref={promptRef}
               className="automation-modal__prompt"
@@ -619,104 +619,105 @@ export function NewAutomationModal({
               aria-expanded={Boolean(mention)}
               data-testid="automation-modal-prompt"
             />
-            {mention ? (
-              <div
-                id="automation-context-picker"
-                className="automation-mention-popover"
-                role="listbox"
-                aria-label="Automation context results"
-                data-testid="automation-mention-popover"
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                <div className="automation-mention-tabs" role="tablist" aria-label="Context type">
-                  {[
-                    ['all', 'All'],
-                    ['skills', 'Skills'],
-                    ['plugins', 'Plugins'],
-                    ['mcp', 'MCP'],
-                    ['connectors', 'Connectors'],
-                  ].map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      role="tab"
-                      aria-selected={mentionTab === id}
-                      className={`automation-mention-tab${mentionTab === id ? ' is-active' : ''}`}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        setMentionTab(id as CapabilityPickerTab);
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className="automation-mention-results">
-                  {!hasMentionResults ? (
-                    <div className="automation-mention-empty">
-                      {mention.query ? `No results for "${mention.query}".` : 'Search skills, plugins, MCP servers, and connectors.'}
-                    </div>
-                  ) : null}
-                  {showSkills && filteredSkills.length > 0 ? (
-                    <MentionSection label="Skills">
-                      {filteredSkills.map((skill) => (
-                        <MentionItem
-                          key={`skill-${skill.id}`}
-                          icon="file"
-                          label={skill.name}
-                          meta={skill.description || skill.mode}
-                          selected={selectedSkillIds.includes(skill.id)}
-                          onPick={() => pickSkill(skill)}
-                        />
-                      ))}
-                    </MentionSection>
-                  ) : null}
-                  {showPlugins && filteredPlugins.length > 0 ? (
-                    <MentionSection label="Plugins">
-                      {filteredPlugins.map((plugin) => (
-                        <MentionItem
-                          key={`plugin-${plugin.id}`}
-                          icon="sparkles"
-                          label={plugin.title}
-                          meta={plugin.manifest?.description ?? plugin.id}
-                          selected={selectedPluginIds.includes(plugin.id)}
-                          onPick={() => pickPlugin(plugin)}
-                        />
-                      ))}
-                    </MentionSection>
-                  ) : null}
-                  {showMcp && filteredMcp.length > 0 ? (
-                    <MentionSection label="MCP">
-                      {filteredMcp.map((server) => (
-                        <MentionItem
-                          key={`mcp-${server.id}`}
-                          icon="link"
-                          label={server.label || server.id}
-                          meta={server.url || server.command || server.transport}
-                          selected={selectedMcpIds.includes(server.id)}
-                          onPick={() => pickMcp(server)}
-                        />
-                      ))}
-                    </MentionSection>
-                  ) : null}
-                  {showConnectors && filteredConnectors.length > 0 ? (
-                    <MentionSection label="Connectors">
-                      {filteredConnectors.map((connector) => (
-                        <MentionItem
-                          key={`connector-${connector.id}`}
-                          icon="link"
-                          label={connector.name}
-                          meta={connector.accountLabel ?? connector.provider ?? connector.id}
-                          selected={selectedConnectorIds.includes(connector.id)}
-                          onPick={() => pickConnector(connector)}
-                        />
-                      ))}
-                    </MentionSection>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
           </div>
+
+          {mention ? (
+            <div
+              id="automation-context-picker"
+              className="automation-mention-popover"
+              role="listbox"
+              aria-label="Automation context results"
+              data-testid="automation-mention-popover"
+              onMouseDown={(e) => e.preventDefault()}
+            >
+              <div className="automation-mention-tabs" role="tablist" aria-label="Context type">
+                {[
+                  ['all', 'All'],
+                  ['skills', 'Skills'],
+                  ['plugins', 'Plugins'],
+                  ['mcp', 'MCP'],
+                  ['connectors', 'Connectors'],
+                ].map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={mentionTab === id}
+                    className={`automation-mention-tab${mentionTab === id ? ' is-active' : ''}`}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setMentionTab(id as CapabilityPickerTab);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="automation-mention-results">
+                {!hasMentionResults ? (
+                  <div className="automation-mention-empty">
+                    {mention.query ? `No results for "${mention.query}".` : 'Search skills, plugins, MCP servers, and connectors.'}
+                  </div>
+                ) : null}
+                {showSkills && filteredSkills.length > 0 ? (
+                  <MentionSection label="Skills">
+                    {filteredSkills.map((skill) => (
+                      <MentionItem
+                        key={`skill-${skill.id}`}
+                        icon="file"
+                        label={skill.name}
+                        meta={skill.description || skill.mode}
+                        selected={selectedSkillIds.includes(skill.id)}
+                        onPick={() => pickSkill(skill)}
+                      />
+                    ))}
+                  </MentionSection>
+                ) : null}
+                {showPlugins && filteredPlugins.length > 0 ? (
+                  <MentionSection label="Plugins">
+                    {filteredPlugins.map((plugin) => (
+                      <MentionItem
+                        key={`plugin-${plugin.id}`}
+                        icon="sparkles"
+                        label={plugin.title}
+                        meta={plugin.manifest?.description ?? plugin.id}
+                        selected={selectedPluginIds.includes(plugin.id)}
+                        onPick={() => pickPlugin(plugin)}
+                      />
+                    ))}
+                  </MentionSection>
+                ) : null}
+                {showMcp && filteredMcp.length > 0 ? (
+                  <MentionSection label="MCP">
+                    {filteredMcp.map((server) => (
+                      <MentionItem
+                        key={`mcp-${server.id}`}
+                        icon="link"
+                        label={server.label || server.id}
+                        meta={server.url || server.command || server.transport}
+                        selected={selectedMcpIds.includes(server.id)}
+                        onPick={() => pickMcp(server)}
+                      />
+                    ))}
+                  </MentionSection>
+                ) : null}
+                {showConnectors && filteredConnectors.length > 0 ? (
+                  <MentionSection label="Connectors">
+                    {filteredConnectors.map((connector) => (
+                      <MentionItem
+                        key={`connector-${connector.id}`}
+                        icon="link"
+                        label={connector.name}
+                        meta={connector.accountLabel ?? connector.provider ?? connector.id}
+                        selected={selectedConnectorIds.includes(connector.id)}
+                        onPick={() => pickConnector(connector)}
+                      />
+                    ))}
+                  </MentionSection>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {selectedContextItems.length > 0 ? (
             <div className="automation-selected-context" aria-label="Selected automation context">

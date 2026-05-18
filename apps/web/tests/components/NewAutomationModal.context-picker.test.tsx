@@ -98,7 +98,11 @@ describe('NewAutomationModal context picker', () => {
     fireEvent.change(prompt, {
       target: { value: 'Run @memory', selectionStart: 'Run @memory'.length },
     });
-    expect(screen.getByTestId('automation-mention-popover')).toBeTruthy();
+    const mentionPopover = screen.getByTestId('automation-mention-popover');
+    const promptWrap = prompt.closest('.automation-modal__prompt-wrap');
+    expect(mentionPopover).toBeTruthy();
+    expect(promptWrap?.classList.contains('is-mentioning')).toBe(true);
+    expect(mentionPopover.closest('.automation-modal__prompt-wrap')).toBeNull();
     expect(screen.getByRole('tab', { name: 'Connectors' })).toBeTruthy();
     fireEvent.mouseDown(screen.getByRole('option', { name: /Memory Refresh/i }));
     expect(prompt.value).toContain('@Memory Refresh');
