@@ -119,6 +119,7 @@ describe('FileWorkspace design-system project surface', () => {
     expect(markup).toContain('data-testid="design-system-project-tab"');
     expect(markup).toContain('data-testid="design-files-tab"');
     expect(markup).toContain('Review draft design system');
+    expect(markup).not.toContain('<h2>Needs review</h2>');
     expect(markup).toContain('Type');
     expect(markup).toContain('Colors');
     expect(markup).toContain('Spacing');

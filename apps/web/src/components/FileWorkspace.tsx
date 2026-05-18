@@ -1440,7 +1440,6 @@ function DesignSystemProjectPanel({
         <div className="ds-project-sections">
           {primaryNeedsReview.length > 0 ? (
             <div className="ds-project-section-group">
-              <h2>Needs review</h2>
               {primaryNeedsReview.map((item, index) =>
                 renderReviewCard(item, `needs-review:${item.section.title}`, index === 0),
               )}
