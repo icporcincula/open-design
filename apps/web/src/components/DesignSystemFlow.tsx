@@ -2595,7 +2595,7 @@ function buildCreationAgentPrompt(
     '- For private repositories, local git credentials or GitHub CLI authentication (`gh auth login --web`) are valid intake paths because the command still writes local evidence snapshots.',
     '- If the bounded command cannot write snapshots at all, stop with the permission, GitHub CLI login, connection, rate-limit, or clone issue. Do not substitute ad-hoc public GitHub browsing, memory, or URL-only inference.',
     '- Finish only after the project contains reviewable design-system artifacts: `DESIGN.md`, `README.md`, `SKILL.md`, reusable token/style files, focused preview HTML cards, UI-kit examples, preserved assets/fonts when supported, and provenance/context notes.',
-    '- Before your final response, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path .`. Fix every audit error. If an error cannot be fixed because source evidence is missing, explain that blocker instead of claiming the design system is ready.',
+    '- Before your final response, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path . --fail-on-warnings`. Fix every audit error and design-quality warning, including generic visual artifacts, thin source-backed modules, stale manifest paths, and missing representative assets/fonts. If an issue cannot be fixed because source evidence is missing, explain that blocker instead of claiming the design system is ready.',
     '',
     `Company / design system context:\n${state.company.trim()}`,
     sourceContextManifestPath
@@ -2735,7 +2735,7 @@ function buildSourceContextManifest(
     '- assets/, fonts/, and context/ should preserve logos, app icons, tray icons, wordmarks, font files, provenance, and source notes for future projects.',
     '- GitHub evidence must come from the bounded `github-design-context` command, not direct connector tree/content/raw tool calls. The command may record connector use, local git clone, or authenticated GitHub CLI clone when connector output is unavailable, rate-limited, or oversized.',
     '- Linked local folder evidence should come from the bounded `local-design-context` command, which writes a local evidence note and snapshots under `context/local-code/` before final design-system rules are drafted.',
-    '- Before marking the design system ready, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path .` and fix every reported error.',
+    '- Before marking the design system ready, run `"$OD_NODE_BIN" "$OD_BIN" tools connectors design-system-package-audit --path . --fail-on-warnings` and fix every reported error or warning.',
     '- Draft design systems cannot be used by other projects until published.',
   );
 

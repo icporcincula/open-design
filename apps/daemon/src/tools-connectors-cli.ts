@@ -29,6 +29,7 @@ interface ParsedOptions {
   maxFiles?: number;
   requireConnector?: boolean;
   referencePackage?: boolean;
+  failOnWarnings?: boolean;
   useCase?: 'personal_daily_digest';
   format: 'compact' | 'json';
   help: boolean;
@@ -39,7 +40,7 @@ const CONNECTORS_USAGE = `Usage:
   od tools connectors execute --connector <id> --tool <name> --input input.json
   od tools connectors github-design-context --repo owner/repo [--ref main] [--output context/github/owner-repo.md] [--max-files 48] [--require-connector]
   od tools connectors local-design-context --path /path/to/project [--output context/local-code/project.md] [--max-files 48]
-  od tools connectors design-system-package-audit --path /path/to/project [--reference-package]
+  od tools connectors design-system-package-audit --path /path/to/project [--reference-package] [--fail-on-warnings]
 
 Environment:
   OD_NODE_BIN     Node-compatible runtime for agent wrapper invocations
@@ -214,6 +215,8 @@ function parseOptions(args: string[]): ParsedOptions | { error: string } {
       options.requireConnector = true;
     } else if (arg === '--reference-package') {
       options.referencePackage = true;
+    } else if (arg === '--fail-on-warnings') {
+      options.failOnWarnings = true;
     } else if (arg === '--format') {
       const value = rest[++index];
       if (value !== 'compact' && value !== 'json') return { error: '--format must be compact or json' };
@@ -1450,8 +1453,9 @@ async function runLocalDesignContext(options: ParsedOptions): Promise<ToolCliRes
 async function runDesignSystemPackageAudit(options: ParsedOptions): Promise<ToolCliResult> {
   const projectPath = path.resolve(options.localPath ?? '.');
   const audit = await auditDesignSystemPackage(projectPath, { referencePackage: options.referencePackage === true });
-  writeJson(audit);
-  return { exitCode: audit.ok ? 0 : 1 };
+  const ok = audit.ok && (options.failOnWarnings !== true || audit.warnings.length === 0);
+  writeJson(options.failOnWarnings === true ? { ...audit, ok } : audit);
+  return { exitCode: ok ? 0 : 1 };
 }
 
 async function auditDesignSystemPackage(

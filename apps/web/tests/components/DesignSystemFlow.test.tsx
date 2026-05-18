@@ -228,13 +228,24 @@ describe('DesignSystemCreationFlow', () => {
     expect(mocks.patchProject).toHaveBeenCalledWith(
       project.id,
       expect.objectContaining({
-        pendingPrompt: expect.stringContaining('tools connectors design-system-package-audit --path .'),
+        pendingPrompt: expect.stringContaining('tools connectors design-system-package-audit --path . --fail-on-warnings'),
+      }),
+    );
+    expect(mocks.patchProject).toHaveBeenCalledWith(
+      project.id,
+      expect.objectContaining({
+        pendingPrompt: expect.stringContaining('Fix every audit error and design-quality warning'),
       }),
     );
     expect(mocks.writeProjectTextFile).toHaveBeenCalledWith(
       project.id,
       'context/source-context.md',
-      expect.stringContaining('tools connectors design-system-package-audit --path .'),
+      expect.stringContaining('tools connectors design-system-package-audit --path . --fail-on-warnings'),
+    );
+    expect(mocks.writeProjectTextFile).toHaveBeenCalledWith(
+      project.id,
+      'context/source-context.md',
+      expect.stringContaining('fix every reported error or warning'),
     );
     expect(mocks.writeProjectTextFile).toHaveBeenCalledWith(
       project.id,

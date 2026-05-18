@@ -817,6 +817,18 @@ describe('connectors tool CLI', () => {
       }),
     ]));
 
+    stdoutOutput = [];
+    const strictResult = await runConnectorsToolCli(['design-system-package-audit', '--path', tmpDir, '--fail-on-warnings']);
+
+    expect(strictResult.exitCode).toBe(1);
+    expect(JSON.parse(stdoutOutput.join(''))).toMatchObject({
+      ok: false,
+      errors: [],
+      warnings: expect.arrayContaining([
+        expect.objectContaining({ code: 'generic_visual_artifacts', path: 'preview/' }),
+      ]),
+    });
+
     await rm(tmpDir, { recursive: true, force: true });
   });
 
