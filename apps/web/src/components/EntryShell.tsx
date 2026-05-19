@@ -682,6 +682,7 @@ function OnboardingView({
     Record<string, ProviderModelOption[]>
   >({});
   const [profile, setProfile] = useState({
+    role: '',
     orgSize: '',
     useCase: [] as string[],
     source: '',
@@ -822,6 +823,17 @@ function OnboardingView({
   ];
   const amrItem = runtimeItems[0]!;
   const alternativeRuntimeItems = runtimeItems.slice(1);
+  const roleOptions = [
+    { value: 'pm', label: t('settings.onboardingRolePm') },
+    { value: 'designer', label: t('settings.onboardingRoleDesigner') },
+    { value: 'engineer', label: t('settings.onboardingRoleEngineer') },
+    { value: 'marketing', label: t('settings.onboardingRoleMarketing') },
+    { value: 'growth', label: t('settings.onboardingRoleGrowth') },
+    { value: 'ops', label: t('settings.onboardingRoleOps') },
+    { value: 'founder', label: t('settings.onboardingRoleFounder') },
+    { value: 'student', label: t('settings.onboardingRoleStudent') },
+    { value: 'other', label: t('settings.onboardingRoleOther') },
+  ];
   const orgSizeOptions = [
     { value: 'solo', label: t('settings.onboardingOrgSolo') },
     { value: 'team', label: t('settings.onboardingOrgTeam') },
@@ -1199,6 +1211,13 @@ function OnboardingView({
                 body={t('settings.onboardingProfileBody')}
               />
               <div className="onboarding-view__form-grid">
+                <OnboardingDropdown
+                  label={t('settings.onboardingRoleLabel')}
+                  placeholder={t('settings.onboardingSelectPlaceholder')}
+                  value={profile.role}
+                  options={roleOptions}
+                  onChange={(value) => setProfile((current) => ({ ...current, role: value }))}
+                />
                 <OnboardingDropdown
                   label={t('settings.onboardingOrgSizeLabel')}
                   placeholder={t('settings.onboardingSelectPlaceholder')}
