@@ -20,6 +20,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesignSystemSummary } from '@open-design/contracts';
+import { useI18n } from '../i18n';
+import {
+  localizeDesignSystemCategory,
+  localizeDesignSystemSummary,
+} from '../i18n/content';
 import {
   fetchDesignSystemPreview,
   openFolderDialog,
@@ -52,6 +57,7 @@ export function HomeHeroSettingsChips({
   onChangeDesignSystemId,
   variant = 'block',
 }: Props) {
+  const { locale, t } = useI18n();
   const selectedDs = useMemo(
     () => designSystems.find((d) => d.id === selectedDesignSystemId) ?? null,
     [designSystems, selectedDesignSystemId],
@@ -136,10 +142,12 @@ export function HomeHeroSettingsChips({
     const q = dsQuery.trim().toLowerCase();
     if (q.length === 0) return designSystems;
     return designSystems.filter((d) => {
-      const haystack = `${d.title} ${d.category} ${d.summary}`.toLowerCase();
+      const localizedSummary = localizeDesignSystemSummary(locale, d);
+      const localizedCategory = localizeDesignSystemCategory(locale, d.category);
+      const haystack = `${d.title} ${d.category} ${d.summary} ${localizedCategory} ${localizedSummary}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [dsQuery, designSystems]);
+  }, [dsQuery, designSystems, locale]);
 
   // Fire the native dialog request without queueing a React re-render
   // first — the OS dialog is modal, so disabling the button beforehand
@@ -154,7 +162,7 @@ export function HomeHeroSettingsChips({
           onChangeWorkingDir(picked);
           setDirError(null);
         } else {
-          setDirError('未选择目录 — 启动桌面版以使用原生选择器');
+          setDirError(t('workingDirPicker.unavailable'));
         }
       } catch (err) {
         setDirError(err instanceof Error ? err.message : String(err));
@@ -176,10 +184,10 @@ export function HomeHeroSettingsChips({
         className={`home-hero__setting-chip${workingDir ? ' picked' : ''}`}
         data-testid="home-hero-working-dir-chip"
         onClick={handlePickDir}
-        title={workingDir ?? '选择项目要放在哪个目录下'}
+        title={workingDir ?? t('workingDirPicker.homeTitle')}
       >
         <Icon name="folder" size={13} />
-        <span>{workingDir ? shortDir : '选择工作目录'}</span>
+        <span>{workingDir ? shortDir : t('workingDirPicker.select')}</span>
         {workingDir ? (
           <span
             className="home-hero__setting-chip-clear"
@@ -189,7 +197,7 @@ export function HomeHeroSettingsChips({
               onChangeWorkingDir(null);
             }}
             role="button"
-            aria-label="Clear working directory"
+            aria-label={t('workingDirPicker.clearAria')}
           >
             <Icon name="close" size={11} />
           </span>
@@ -206,12 +214,13 @@ export function HomeHeroSettingsChips({
           data-testid="home-hero-design-system-chip"
           onClick={() => setDsOpen((v) => !v)}
           disabled={designSystemsLoading}
+          title={selectedDs?.title ?? t('designSystemPicker.select')}
         >
           <Icon name="palette" size={13} />
           <span>
             {designSystemsLoading
-              ? '加载设计系统…'
-              : selectedDs?.title ?? '选择设计系统'}
+              ? t('designSystemPicker.loading')
+              : selectedDs?.title ?? t('designSystemPicker.select')}
           </span>
           <Icon name="chevron-down" size={11} />
         </button>
@@ -227,7 +236,7 @@ export function HomeHeroSettingsChips({
                 type="text"
                 value={dsQuery}
                 onChange={(e) => setDsQuery(e.target.value)}
-                placeholder="搜索设计系统 (标题 / 分类 / 摘要)"
+                placeholder={t('designSystemPicker.searchPlaceholder')}
                 data-testid="home-hero-design-system-search"
               />
             </div>
@@ -243,51 +252,55 @@ export function HomeHeroSettingsChips({
                     setDsOpen(false);
                   }}
                 >
-                  <span className="home-hero__design-system-option-title">不指定设计系统</span>
+                  <span className="home-hero__design-system-option-title">{t('designSystemPicker.noneTitle')}</span>
                   <span className="home-hero__design-system-option-summary">
-                    让模型自由发挥
+                    {t('designSystemPicker.noneSummary')}
                   </span>
                 </button>
-                {filteredDs.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    className={`home-hero__design-system-option${d.id === selectedDesignSystemId ? ' active' : ''}`}
-                    role="option"
-                    aria-selected={d.id === selectedDesignSystemId}
-                    onMouseEnter={() => setHoveredDs(d)}
-                    onFocus={() => setHoveredDs(d)}
-                    onClick={() => {
-                      onChangeDesignSystemId(d.id);
-                      setDsOpen(false);
-                    }}
-                    data-testid={`home-hero-design-system-option-${d.id}`}
-                  >
-                    <div className="home-hero__design-system-option-head">
-                      <span className="home-hero__design-system-option-title">{d.title}</span>
-                      {d.category ? (
-                        <span className="home-hero__design-system-option-cat">{d.category}</span>
-                      ) : null}
-                    </div>
-                    {d.swatches && d.swatches.length > 0 ? (
-                      <div className="home-hero__design-system-swatches">
-                        {d.swatches.slice(0, 6).map((sw, i) => (
-                          <span
-                            key={`${d.id}-sw-${i}`}
-                            className="home-hero__design-system-swatch"
-                            style={{ background: sw }}
-                          />
-                        ))}
+                {filteredDs.map((d) => {
+                  const localizedCategory = localizeDesignSystemCategory(locale, d.category);
+                  const localizedSummary = localizeDesignSystemSummary(locale, d);
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className={`home-hero__design-system-option${d.id === selectedDesignSystemId ? ' active' : ''}`}
+                      role="option"
+                      aria-selected={d.id === selectedDesignSystemId}
+                      onMouseEnter={() => setHoveredDs(d)}
+                      onFocus={() => setHoveredDs(d)}
+                      onClick={() => {
+                        onChangeDesignSystemId(d.id);
+                        setDsOpen(false);
+                      }}
+                      data-testid={`home-hero-design-system-option-${d.id}`}
+                    >
+                      <div className="home-hero__design-system-option-head">
+                        <span className="home-hero__design-system-option-title">{d.title}</span>
+                        {d.category ? (
+                          <span className="home-hero__design-system-option-cat">{localizedCategory}</span>
+                        ) : null}
                       </div>
-                    ) : null}
-                    {d.summary ? (
-                      <span className="home-hero__design-system-option-summary">{d.summary}</span>
-                    ) : null}
-                  </button>
-                ))}
+                      {d.swatches && d.swatches.length > 0 ? (
+                        <div className="home-hero__design-system-swatches">
+                          {d.swatches.slice(0, 6).map((sw, i) => (
+                            <span
+                              key={`${d.id}-sw-${i}`}
+                              className="home-hero__design-system-swatch"
+                              style={{ background: sw }}
+                            />
+                          ))}
+                        </div>
+                      ) : null}
+                      {localizedSummary ? (
+                        <span className="home-hero__design-system-option-summary">{localizedSummary}</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
                 {filteredDs.length === 0 ? (
                   <div className="home-hero__design-system-empty">
-                    没有匹配的设计系统
+                    {t('designSystemPicker.empty')}
                   </div>
                 ) : null}
               </div>
@@ -297,7 +310,9 @@ export function HomeHeroSettingsChips({
                     <div className="home-hero__design-system-preview-head">
                       <strong>{previewTarget.title}</strong>
                       {previewTarget.category ? (
-                        <span className="home-hero__design-system-preview-cat">{previewTarget.category}</span>
+                        <span className="home-hero__design-system-preview-cat">
+                          {localizeDesignSystemCategory(locale, previewTarget.category)}
+                        </span>
                       ) : null}
                       {previewHtml ? (
                         <button
@@ -305,8 +320,8 @@ export function HomeHeroSettingsChips({
                           className="home-hero__design-system-preview-expand"
                           data-testid="home-hero-design-system-preview-expand"
                           onClick={() => setFullscreenPreview(true)}
-                          title="打开预览"
-                          aria-label="打开预览"
+                          title={t('designSystemPicker.openPreview')}
+                          aria-label={t('designSystemPicker.openPreview')}
                         >
                           <Icon name="eye" size={16} strokeWidth={1.9} />
                         </button>
@@ -314,7 +329,7 @@ export function HomeHeroSettingsChips({
                     </div>
                     {previewTarget.summary ? (
                       <p className="home-hero__design-system-preview-summary">
-                        {previewTarget.summary}
+                        {localizeDesignSystemSummary(locale, previewTarget)}
                       </p>
                     ) : null}
                     {previewTarget.swatches && previewTarget.swatches.length > 0 ? (
@@ -331,24 +346,24 @@ export function HomeHeroSettingsChips({
                     ) : null}
                     {previewLoading ? (
                       <div className="home-hero__design-system-preview-loading">
-                        加载预览…
+                        {t('designSystemPicker.loadingPreview')}
                       </div>
                     ) : previewHtml ? (
                       <iframe
                         className="home-hero__design-system-preview-frame"
                         srcDoc={previewHtml}
                         sandbox="allow-same-origin"
-                        title={`${previewTarget.title} preview`}
+                        title={t('designSystemPicker.previewFrameTitle', { title: previewTarget.title })}
                       />
                     ) : (
                       <div className="home-hero__design-system-preview-empty">
-                        无预览页面 — 在「专家套件 → 设计系统」中查看完整预览
+                        {t('designSystemPicker.noPreview')}
                       </div>
                     )}
                   </>
                 ) : (
                   <div className="home-hero__design-system-preview-empty">
-                    将鼠标悬停在左侧条目上查看预览
+                    {t('designSystemPicker.previewHint')}
                   </div>
                 )}
               </div>
@@ -365,7 +380,7 @@ export function HomeHeroSettingsChips({
             <div
               className="home-hero__design-system-fullscreen"
               role="dialog"
-              aria-label={`${previewTarget.title} 全屏预览`}
+              aria-label={t('designSystemPicker.fullscreenAria', { title: previewTarget.title })}
               onClick={(event) => {
                 if (event.target === event.currentTarget) {
                   setFullscreenPreview(false);
@@ -378,7 +393,7 @@ export function HomeHeroSettingsChips({
                     <strong>{previewTarget.title}</strong>
                     {previewTarget.category ? (
                       <span className="home-hero__design-system-preview-cat">
-                        {previewTarget.category}
+                        {localizeDesignSystemCategory(locale, previewTarget.category)}
                       </span>
                     ) : null}
                   </div>
@@ -386,8 +401,8 @@ export function HomeHeroSettingsChips({
                     type="button"
                     className="home-hero__design-system-fullscreen-close"
                     onClick={() => setFullscreenPreview(false)}
-                    aria-label="关闭全屏预览"
-                    title="关闭 (Esc)"
+                    aria-label={t('designSystemPicker.closeFullscreen')}
+                    title={t('designSystemPicker.closeEsc')}
                   >
                     <Icon name="close" size={18} strokeWidth={2.1} />
                   </button>
@@ -396,7 +411,7 @@ export function HomeHeroSettingsChips({
                   className="home-hero__design-system-fullscreen-iframe"
                   srcDoc={previewHtml}
                   sandbox="allow-same-origin"
-                  title={`${previewTarget.title} fullscreen preview`}
+                  title={t('designSystemPicker.fullscreenFrameTitle', { title: previewTarget.title })}
                 />
               </div>
             </div>,

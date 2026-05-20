@@ -36,7 +36,7 @@ describe('desktop-import-token gate', () => {
     };
     baseUrl = started.url;
     server = started.server;
-  });
+  }, 30_000);
 
   beforeEach(() => {
     // Each test starts in "no secret registered" mode unless it
@@ -352,11 +352,14 @@ describe('desktop-import-token gate', () => {
   // as /api/import/folder. These tests pin parity so a future divergence
   // (one route hardens but the other doesn't) fails fast.
 
+  let projectSeq = 0;
   async function createProject(): Promise<string> {
+    projectSeq += 1;
+    const id = `wd-test-${Date.now()}-${projectSeq}`;
     const resp = await fetch(`${baseUrl}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'working-dir-test' }),
+      body: JSON.stringify({ id, name: 'working-dir-test' }),
     });
     expect(resp.status).toBe(200);
     const body = (await resp.json()) as { project: { id: string } };

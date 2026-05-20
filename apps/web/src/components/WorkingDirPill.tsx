@@ -28,6 +28,7 @@ import {
   replaceProjectWorkingDir,
 } from '../providers/registry';
 import { useTerminalLaunch } from '../hooks/useTerminalLaunch';
+import { useT } from '../i18n';
 import { Icon } from './Icon';
 
 const RECENT_DIRS_KEY = 'open-design:recent-working-dirs';
@@ -68,6 +69,7 @@ function pushRecent(dir: string): void {
 }
 
 export function WorkingDirPill({ projectId, resolvedDir: propResolvedDir, onReplaced }: Props) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,7 +156,7 @@ export function WorkingDirPill({ projectId, resolvedDir: propResolvedDir, onRepl
         if (!('canceled' in result) || !result.canceled) {
           const reason = 'reason' in result && typeof result.reason === 'string' && result.reason.length > 0
             ? result.reason
-            : '替换工作目录失败';
+            : t('workingDirPicker.replaceFailed');
           setError(reason);
         }
       } finally {
@@ -165,7 +167,7 @@ export function WorkingDirPill({ projectId, resolvedDir: propResolvedDir, onRepl
     // Web / dev fallback: gate dormant, OK to use the renderer-driven path.
     const picked = await openFolderDialog();
     if (!picked) {
-      setError('Folder picker unavailable in this build. Run the desktop app to pick a folder.');
+      setError(t('workingDirPicker.unavailable'));
       return;
     }
     await applyDir(picked);
@@ -192,11 +194,11 @@ export function WorkingDirPill({ projectId, resolvedDir: propResolvedDir, onRepl
         data-testid="working-dir-pill-trigger"
         onClick={() => setOpen((v) => !v)}
         disabled={busy}
-        title={resolvedDir ?? '工作目录'}
+        title={resolvedDir ?? t('workingDirPicker.title')}
       >
         <Icon name="folder" size={12} />
         <span className="working-dir-pill-label">
-          {busy ? '处理中…' : shortPath ?? '选择工作目录'}
+          {busy ? t('workingDirPicker.processing') : shortPath ?? t('workingDirPicker.select')}
         </span>
         <Icon name="chevron-down" size={10} />
       </button>
@@ -217,7 +219,7 @@ export function WorkingDirPill({ projectId, resolvedDir: propResolvedDir, onRepl
                 }}
               >
                 <Icon name="folder" size={12} />
-                <span>在 Finder 中显示</span>
+                <span>{t('workingDirPicker.showInFileManager')}</span>
               </button>
               <div className="working-dir-pill-menu-divider" />
             </>
@@ -230,12 +232,12 @@ export function WorkingDirPill({ projectId, resolvedDir: propResolvedDir, onRepl
             data-testid="working-dir-pill-replace"
           >
             <Icon name="folder" size={12} />
-            <span>清空并替换目录…</span>
+            <span>{t('workingDirPicker.replace')}</span>
           </button>
           {showRecents && recents.filter((r) => r !== resolvedDir).length > 0 ? (
             <>
               <div className="working-dir-pill-menu-divider" />
-              <div className="working-dir-pill-menu-section">最近使用的目录</div>
+              <div className="working-dir-pill-menu-section">{t('workingDirPicker.recent')}</div>
               {recents
                 .filter((r) => r !== resolvedDir)
                 .map((dir) => (

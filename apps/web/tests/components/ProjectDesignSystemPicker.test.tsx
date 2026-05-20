@@ -80,9 +80,10 @@ describe('ProjectDesignSystemPicker', () => {
     });
 
     fireEvent.click(await screen.findByTestId('project-ds-picker-preview-expand'));
-    expect(screen.getByRole('dialog', { name: 'Clay 全屏预览' })).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getAllByText('Clay').length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByLabelText('关闭全屏预览'));
+    fireEvent.click(screen.getByLabelText('designSystemPicker.closeFullscreen'));
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

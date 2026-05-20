@@ -998,6 +998,7 @@ export function HomeView({
           projectKind: chip.action.projectKind,
           chipId: chip.id,
           inputs: chip.action.inputs,
+          projectMetadata: chip.action.projectMetadata ?? null,
         };
         // Output-type tabs (create group) are mode-selection gestures:
         // switching between them should never prompt for confirmation,
@@ -1277,6 +1278,7 @@ function projectKindForSkill(skill: SkillSummary | null): ProjectKind | null {
 function facetSelectionForChip(chipId: string): FacetSelection | null {
   switch (chipId) {
     case 'prototype': return { category: 'create', subcategory: 'prototype' };
+    case 'live-artifact': return { category: 'create', subcategory: 'live-artifact' };
     case 'deck': return { category: 'create', subcategory: 'deck' };
     case 'image': return { category: 'create', subcategory: 'image' };
     case 'video': return { category: 'create', subcategory: 'video' };

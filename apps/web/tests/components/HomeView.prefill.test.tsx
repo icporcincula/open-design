@@ -79,11 +79,11 @@ const HIDDEN_DEFAULT_PLUGIN = {
   },
 };
 
-// The Prototype / Live-artifact chips now bind to the bundled
-// `example-web-prototype` plugin (which ships its own seed +
-// layouts + checklist) instead of the generic od-new-generation
-// router. Mirror that here so the chip-applies test can find a
-// matching plugin record and the apply call resolves to the new id.
+// The Prototype chip binds to the bundled `example-web-prototype`
+// plugin (which ships its own seed + layouts + checklist) instead of
+// the generic od-new-generation router. Mirror that here so the
+// chip-applies test can find a matching plugin record and the apply
+// call resolves to the new id.
 const WEB_PROTOTYPE_PLUGIN = {
   ...DEFAULT_PLUGIN,
   id: 'example-web-prototype',
@@ -137,6 +137,35 @@ const WEB_PROTOTYPE_PLUGIN = {
           label: 'Template',
         },
       ],
+    },
+  },
+};
+
+const LIVE_ARTIFACT_PLUGIN = {
+  ...DEFAULT_PLUGIN,
+  id: 'example-live-artifact',
+  title: 'Live Artifact',
+  source: '/tmp/live-artifact',
+  fsPath: '/tmp/live-artifact',
+  manifest: {
+    ...DEFAULT_PLUGIN.manifest,
+    name: 'example-live-artifact',
+    title: 'Live Artifact',
+    description: 'Create refreshable, auditable Open Design artifacts.',
+    od: {
+      kind: 'scenario',
+      taskKind: 'new-generation',
+      mode: 'prototype',
+      scenario: 'live',
+      useCase: {
+        query: 'Create refreshable, auditable Open Design artifacts backed by connector or local data.',
+      },
+      context: {
+        skills: [{ path: './SKILL.md' }],
+      },
+      pipeline: {
+        stages: [{ id: 'generate', atoms: ['file-write', 'live-artifact'] }],
+      },
     },
   },
 };
@@ -202,6 +231,21 @@ const WEB_PROTOTYPE_APPLY_RESULT = {
       designSystem: 'the active project design system',
       template: 'the bundled web prototype seed',
     },
+  },
+};
+
+const LIVE_ARTIFACT_APPLY_RESULT = {
+  ...AUTHORING_APPLY_RESULT,
+  query: LIVE_ARTIFACT_PLUGIN.manifest.od.useCase.query,
+  inputs: [],
+  appliedPlugin: {
+    ...AUTHORING_APPLY_RESULT.appliedPlugin,
+    snapshotId: 'snap-live-artifact',
+    pluginId: 'example-live-artifact',
+    inputs: {},
+  },
+  projectMetadata: {
+    skillId: 'live-artifact',
   },
 };
 

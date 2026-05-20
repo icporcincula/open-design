@@ -10,6 +10,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { DesignSystemSummary } from '@open-design/contracts';
+import { useI18n } from '../i18n';
+import {
+  localizeDesignSystemCategory,
+  localizeDesignSystemSummary,
+} from '../i18n/content';
 import { fetchDesignSystemPreview } from '../providers/registry';
 import { Icon } from './Icon';
 
@@ -32,6 +37,7 @@ export function ProjectDesignSystemPicker({
   loading,
   onChange,
 }: Props) {
+  const { locale, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [anchor, setAnchor] = useState<PopoverAnchor | null>(null);
@@ -141,10 +147,12 @@ export function ProjectDesignSystemPicker({
     const q = query.trim().toLowerCase();
     if (q.length === 0) return designSystems;
     return designSystems.filter((d) => {
-      const haystack = `${d.title} ${d.category} ${d.summary}`.toLowerCase();
+      const localizedSummary = localizeDesignSystemSummary(locale, d);
+      const localizedCategory = localizeDesignSystemCategory(locale, d.category);
+      const haystack = `${d.title} ${d.category} ${d.summary} ${localizedCategory} ${localizedSummary}`.toLowerCase();
       return haystack.includes(q);
     });
-  }, [query, designSystems]);
+  }, [query, designSystems, locale]);
 
   return (
     <div
@@ -159,7 +167,7 @@ export function ProjectDesignSystemPicker({
         data-testid="project-ds-picker-trigger"
         onClick={() => setOpen((v) => !v)}
         disabled={loading}
-        title={selected?.title ?? '选择设计系统'}
+        title={selected?.title ?? t('designSystemPicker.select')}
       >
         {selected && selected.swatches && selected.swatches.length > 0 ? (
           <span className="project-ds-picker-swatches" aria-hidden>
@@ -176,8 +184,8 @@ export function ProjectDesignSystemPicker({
         )}
         <span className="project-ds-picker-label">
           {loading
-            ? '加载设计系统…'
-            : selected?.title ?? '选择设计系统'}
+            ? t('designSystemPicker.loading')
+            : selected?.title ?? t('designSystemPicker.select')}
         </span>
         <Icon name="chevron-down" size={11} />
       </button>
@@ -196,7 +204,7 @@ export function ProjectDesignSystemPicker({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="搜索设计系统"
+                  placeholder={t('designSystemPicker.searchCompactPlaceholder')}
                   data-testid="project-ds-picker-search"
                 />
               </div>
@@ -215,7 +223,7 @@ export function ProjectDesignSystemPicker({
                     }}
                   >
                     <div className="project-ds-picker-option-head">
-                      <span className="project-ds-picker-option-title">不指定设计系统</span>
+                      <span className="project-ds-picker-option-title">{t('designSystemPicker.noneTitle')}</span>
                       {selectedId == null ? (
                         <span
                           className="project-ds-picker-option-check"
@@ -226,11 +234,13 @@ export function ProjectDesignSystemPicker({
                       ) : null}
                     </div>
                     <span className="project-ds-picker-option-summary">
-                      让模型自由发挥
+                      {t('designSystemPicker.noneSummary')}
                     </span>
                   </button>
                   {filtered.map((d) => {
                     const active = d.id === selectedId;
+                    const localizedCategory = localizeDesignSystemCategory(locale, d.category);
+                    const localizedSummary = localizeDesignSystemSummary(locale, d);
                     return (
                       <button
                         key={d.id}
@@ -249,7 +259,7 @@ export function ProjectDesignSystemPicker({
                         <div className="project-ds-picker-option-head">
                           <span className="project-ds-picker-option-title">{d.title}</span>
                           {d.category ? (
-                            <span className="project-ds-picker-option-cat">{d.category}</span>
+                            <span className="project-ds-picker-option-cat">{localizedCategory}</span>
                           ) : null}
                           {active ? (
                             <span
@@ -271,14 +281,14 @@ export function ProjectDesignSystemPicker({
                             ))}
                           </div>
                         ) : null}
-                        {d.summary ? (
-                          <span className="project-ds-picker-option-summary">{d.summary}</span>
+                        {localizedSummary ? (
+                          <span className="project-ds-picker-option-summary">{localizedSummary}</span>
                         ) : null}
                       </button>
                     );
                   })}
                   {filtered.length === 0 ? (
-                    <div className="project-ds-picker-empty">没有匹配的设计系统</div>
+                    <div className="project-ds-picker-empty">{t('designSystemPicker.empty')}</div>
                   ) : null}
                 </div>
                 <div className="project-ds-picker-preview" data-testid="project-ds-picker-preview">
@@ -287,7 +297,9 @@ export function ProjectDesignSystemPicker({
                       <div className="project-ds-picker-preview-head">
                         <strong>{previewTarget.title}</strong>
                         {previewTarget.category ? (
-                          <span className="project-ds-picker-preview-cat">{previewTarget.category}</span>
+                          <span className="project-ds-picker-preview-cat">
+                            {localizeDesignSystemCategory(locale, previewTarget.category)}
+                          </span>
                         ) : null}
                         {previewHtml ? (
                           <button
@@ -295,8 +307,8 @@ export function ProjectDesignSystemPicker({
                             className="project-ds-picker-preview-expand"
                             data-testid="project-ds-picker-preview-expand"
                             onClick={() => setFullscreenPreview(true)}
-                            title="打开预览"
-                            aria-label="打开预览"
+                            title={t('designSystemPicker.openPreview')}
+                            aria-label={t('designSystemPicker.openPreview')}
                           >
                             <Icon name="eye" size={16} strokeWidth={1.9} />
                           </button>
@@ -304,7 +316,7 @@ export function ProjectDesignSystemPicker({
                       </div>
                       {previewTarget.summary ? (
                         <p className="project-ds-picker-preview-summary">
-                          {previewTarget.summary}
+                          {localizeDesignSystemSummary(locale, previewTarget)}
                         </p>
                       ) : null}
                       {previewTarget.swatches && previewTarget.swatches.length > 0 ? (
@@ -321,7 +333,7 @@ export function ProjectDesignSystemPicker({
                       ) : null}
                       {previewLoading ? (
                         <div className="project-ds-picker-preview-loading">
-                          加载预览…
+                          {t('designSystemPicker.loadingPreview')}
                         </div>
                       ) : previewHtml ? (
                         <iframe
@@ -329,17 +341,17 @@ export function ProjectDesignSystemPicker({
                           data-testid="project-ds-picker-preview-frame"
                           srcDoc={previewHtml}
                           sandbox="allow-same-origin"
-                          title={`${previewTarget.title} preview`}
+                          title={t('designSystemPicker.previewFrameTitle', { title: previewTarget.title })}
                         />
                       ) : (
                         <div className="project-ds-picker-preview-empty">
-                          无预览页面 — 在「专家套件 → 设计系统」中查看完整预览
+                          {t('designSystemPicker.noPreview')}
                         </div>
                       )}
                     </>
                   ) : (
                     <div className="project-ds-picker-preview-empty">
-                      将鼠标悬停在左侧条目上查看预览
+                      {t('designSystemPicker.previewHint')}
                     </div>
                   )}
                 </div>
@@ -353,7 +365,7 @@ export function ProjectDesignSystemPicker({
             <div
               className="project-ds-picker-fullscreen"
               role="dialog"
-              aria-label={`${previewTarget.title} 全屏预览`}
+              aria-label={t('designSystemPicker.fullscreenAria', { title: previewTarget.title })}
               onClick={(event) => {
                 if (event.target === event.currentTarget) {
                   setFullscreenPreview(false);
@@ -366,7 +378,7 @@ export function ProjectDesignSystemPicker({
                     <strong>{previewTarget.title}</strong>
                     {previewTarget.category ? (
                       <span className="project-ds-picker-preview-cat">
-                        {previewTarget.category}
+                        {localizeDesignSystemCategory(locale, previewTarget.category)}
                       </span>
                     ) : null}
                   </div>
@@ -374,8 +386,8 @@ export function ProjectDesignSystemPicker({
                     type="button"
                     className="project-ds-picker-fullscreen-close"
                     onClick={() => setFullscreenPreview(false)}
-                    aria-label="关闭全屏预览"
-                    title="关闭 (Esc)"
+                    aria-label={t('designSystemPicker.closeFullscreen')}
+                    title={t('designSystemPicker.closeEsc')}
                   >
                     <Icon name="close" size={18} strokeWidth={2.1} />
                   </button>
@@ -384,7 +396,7 @@ export function ProjectDesignSystemPicker({
                   className="project-ds-picker-fullscreen-iframe"
                   srcDoc={previewHtml}
                   sandbox="allow-same-origin"
-                  title={`${previewTarget.title} fullscreen preview`}
+                  title={t('designSystemPicker.fullscreenFrameTitle', { title: previewTarget.title })}
                 />
               </div>
             </div>,
