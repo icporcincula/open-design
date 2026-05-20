@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-20T09:49:35.507Z",
+  "generatedAt": "2026-05-20T10:01:20.642Z",
   "contributors": {
     "huyhoangnhh98": {
       "lastAnnouncedTier": "spark",
@@ -567,8 +567,8 @@
     },
     "portseif": {
       "lastAnnouncedTier": "signal",
-      "lastKnownScore": 35,
-      "lastCheckedAt": "2026-05-15T07:50:54.781Z",
+      "lastKnownScore": 47,
+      "lastCheckedAt": "2026-05-20T10:01:20.642Z",
       "scoreVersion": "weighted-v1",
       "lastAnnouncedAt": "2026-05-15T07:50:54.781Z"
     },
