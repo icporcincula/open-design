@@ -31,8 +31,10 @@ import type {
 } from '@open-design/contracts';
 import { buildVisualAnnotationAttachment } from '../comments';
 import { Icon } from "./Icon";
+import { MicButton } from "./MicButton";
 import { PluginDetailsModal } from "./PluginDetailsModal";
 import { PluginsSection, type PluginsSectionHandle } from "./PluginsSection";
+import { WorkingDirPill } from "./WorkingDirPill";
 import { BUILT_IN_PETS, CUSTOM_PET_ID, resolveActivePet } from "./pet/pets";
 import {
   buildInlineMentionParts,
@@ -1589,6 +1591,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
               )}
             </button>
             <span className="composer-spacer" />
+            <MicButton
+              onCommit={(text) => {
+                setDraft((prev) => {
+                  const sep = prev.length === 0 || /\s$/.test(prev) ? '' : ' ';
+                  return `${prev}${sep}${text}`;
+                });
+              }}
+            />
             {streaming ? (
               <button
                 type="button"
@@ -1627,6 +1637,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
           </div>
         </div>
         {uploadError ? <span className="composer-hint">{uploadError}</span> : null}
+        {projectId ? (
+          <WorkingDirPill projectId={projectId} />
+        ) : null}
         {detailsRecord ? (
           <PluginDetailsModal
             record={detailsRecord}

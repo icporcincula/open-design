@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ApplyResult,
   ConnectorDetail,
+  DesignSystemSummary,
   InputFieldSpec,
   McpServerConfig,
   InstalledPluginRecord,
@@ -26,6 +27,7 @@ import {
 } from '../state/projects';
 import { fetchMcpServers } from '../state/mcp';
 import { useI18n } from '../i18n';
+import { fetchDesignSystems } from '../providers/registry';
 import { fetchElevenLabsVoiceOptions } from '../providers/elevenlabs-voices';
 import type { Project, ProjectMetadata, PromptTemplateSummary, SkillSummary } from '../types';
 import { inlineMentionToken } from '../utils/inlineMentions';
@@ -163,6 +165,14 @@ export function HomeView({
   const [mcpLoading, setMcpLoading] = useState(true);
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Home settings strip — promoted from the New Project modal to first-
+  // class chips below the composer (image 1 of the design brief). Both
+  // flow through PluginLoopSubmit on submit so the created project is
+  // stamped with the user's choices upfront.
+  const [workingDir, setWorkingDir] = useState<string | null>(null);
+  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<string | null>(null);
+  const [designSystems, setDesignSystems] = useState<DesignSystemSummary[]>([]);
+  const [designSystemsLoading, setDesignSystemsLoading] = useState(true);
   const [elevenLabsVoices, setElevenLabsVoices] = useState<AudioVoiceOption[]>([]);
   const [elevenLabsVoicesLoading, setElevenLabsVoicesLoading] = useState(false);
   const [elevenLabsVoicesLoaded, setElevenLabsVoicesLoaded] = useState(false);
@@ -198,6 +208,26 @@ export function HomeView({
       setMcpServers(result?.servers ?? []);
       setMcpLoading(false);
     });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDesignSystems()
+      .then((rows) => {
+        if (cancelled) return;
+        setDesignSystems(rows);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDesignSystems([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDesignSystemsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -925,6 +955,8 @@ export function HomeView({
       contextMcpServers,
       contextConnectors,
       attachments: stagedFiles,
+      designSystemId: selectedDesignSystemId,
+      workingDir,
     });
   }
 
@@ -980,6 +1012,12 @@ export function HomeView({
         onPickChip={pickChip}
         contextItemCount={contextItemCount}
         error={error}
+        workingDir={workingDir}
+        onChangeWorkingDir={setWorkingDir}
+        designSystems={designSystems}
+        designSystemsLoading={designSystemsLoading}
+        selectedDesignSystemId={selectedDesignSystemId}
+        onChangeDesignSystemId={setSelectedDesignSystemId}
       />
 
       <RecentProjectsStrip

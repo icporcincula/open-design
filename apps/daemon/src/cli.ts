@@ -146,7 +146,8 @@ const LIBRARY_BOOLEAN_FLAGS = new Set(['help', 'h', 'json']);
 const PROJECT_STRING_FLAGS = new Set([
   'daemon-url', 'name', 'skill', 'design-system', 'plugin', 'metadata-json',
   'pending-prompt', 'project', 'conversation', 'message', 'path', 'as',
-  'agent', 'model', 'snapshot-id', 'inputs', 'grant-caps',
+  'agent', 'model', 'snapshot-id', 'inputs', 'grant-caps', 'editor',
+  'dir', 'working-dir',
 ]);
 const PROJECT_BOOLEAN_FLAGS = new Set(['help', 'h', 'json', 'follow']);
 // `od automation …` mirrors the Automations tab. Same surface, same
@@ -3675,9 +3676,19 @@ async function runProject(args) {
     console.log(`Usage:
   od project create [--name "<title>"] [--skill <id>] [--design-system <id>]
                     [--plugin <id>] [--inputs <json>] [--metadata-json <path|->]
+                    [--working-dir <path>]
   od project list                         List projects.
   od project info <id>                    Print one project.
   od project delete <id>                  Delete a project.
+  od project editors                      List locally-installed editors that
+                                          can open a project (hand-off targets).
+  od project open-in <id> --editor <slug> Open the project's working directory
+                                          in the chosen editor (cursor, zed,
+                                          vscode, finder, terminal, …).
+  od project working-dir <id>             Show the project's current working
+                                          directory.
+  od project working-dir <id> --dir <p>   Replace the project's working
+                                          directory (清空并替换目录).
 
 Common options:
   --daemon-url <url>   Open Design daemon HTTP base.
@@ -3732,6 +3743,17 @@ Common options:
         const mj = safeReadJsonFile(flags['metadata-json']);
         if (mj && typeof mj === 'object') body.metadata = mj;
       }
+      // Mirror the home composer's "选择工作目录" chip: stamp the user's
+      // preferred working dir onto the new project's metadata so the
+      // agent + future automation can route work there. The daemon's
+      // file write path still targets resolvedDir; honouring this
+      // hint end-to-end is the same follow-up as the UI flow.
+      if (typeof flags['working-dir'] === 'string' && flags['working-dir'].length > 0) {
+        body.metadata = {
+          ...(body.metadata && typeof body.metadata === 'object' ? body.metadata : {}),
+          userWorkingDir: flags['working-dir'],
+        };
+      }
       if (flags.plugin) body.pluginId = flags.plugin;
       if (flags.inputs) {
         try { body.pluginInputs = JSON.parse(flags.inputs); } catch (err) {
@@ -3772,6 +3794,79 @@ Common options:
       const resp = await fetch(`${base}/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' });
       if (!resp.ok) return structuredHttpFailure(resp, 'project-not-found');
       console.log(`[project] deleted ${id}`);
+      return;
+    }
+    case 'editors': {
+      const resp = await fetch(`${base}/api/editors`);
+      if (!resp.ok) return structuredHttpFailure(resp);
+      const data = await resp.json();
+      if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      const editors = data?.editors ?? [];
+      for (const ed of editors) {
+        const status = ed.available ? 'available' : 'missing';
+        console.log(`${ed.id}\t${ed.label}\t${status}`);
+      }
+      return;
+    }
+    case 'open-in': {
+      const id = rest.find((a) => !a.startsWith('-'));
+      if (!id) {
+        console.error('Usage: od project open-in <id> --editor <slug>');
+        process.exit(2);
+      }
+      const editor = typeof flags.editor === 'string' ? flags.editor : '';
+      if (!editor) {
+        console.error('--editor <slug> is required. Run `od project editors` to list options.');
+        process.exit(2);
+      }
+      const resp = await fetch(`${base}/api/projects/${encodeURIComponent(id)}/open-in`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ editorId: editor }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        if (flags.json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+        else console.error(`POST /api/projects/${id}/open-in failed: ${resp.status} ${JSON.stringify(data)}`);
+        process.exit(1);
+      }
+      if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      console.log(`[project] opened ${id} in ${editor} (${data.path ?? ''})`);
+      return;
+    }
+    case 'working-dir': {
+      const id = rest.find((a) => !a.startsWith('-'));
+      if (!id) {
+        console.error('Usage: od project working-dir <id> [--dir <path>]');
+        process.exit(2);
+      }
+      const dir = typeof flags.dir === 'string' ? flags.dir : null;
+      if (dir) {
+        // Replace mode — POST to /working-dir with the new path.
+        const resp = await fetch(
+          `${base}/api/projects/${encodeURIComponent(id)}/working-dir`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ baseDir: dir }),
+          },
+        );
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          if (flags.json) process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+          else console.error(`POST /api/projects/${id}/working-dir failed: ${resp.status} ${JSON.stringify(data)}`);
+          process.exit(1);
+        }
+        if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+        console.log(`[project] working-dir set to ${data.baseDir ?? dir}`);
+        return;
+      }
+      // Read mode — GET the project and print resolvedDir.
+      const resp = await fetch(`${base}/api/projects/${encodeURIComponent(id)}`);
+      if (!resp.ok) return structuredHttpFailure(resp, 'project-not-found');
+      const data = await resp.json();
+      if (flags.json) return process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+      console.log(data.resolvedDir ?? '(no resolved dir)');
       return;
     }
     default:

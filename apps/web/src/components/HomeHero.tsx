@@ -22,9 +22,17 @@ import type {
   ForwardedRef,
   KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import type { ConnectorDetail, InputFieldSpec, InstalledPluginRecord, McpServerConfig } from '@open-design/contracts';
+import type {
+  ConnectorDetail,
+  DesignSystemSummary,
+  InputFieldSpec,
+  InstalledPluginRecord,
+  McpServerConfig,
+} from '@open-design/contracts';
 import type { SkillSummary } from '../types';
+import { HomeHeroSettingsChips } from './HomeHeroSettingsChips';
 import { Icon, type IconName } from './Icon';
+import { MicButton } from './MicButton';
 import { PluginInputsForm } from './PluginInputsForm';
 import {
   chipsForGroup,
@@ -83,6 +91,18 @@ interface Props {
   onPickChip: (chip: HomeHeroChip) => void;
   contextItemCount: number;
   error: string | null;
+  // Stage 1 of the home settings strip (image 1 of the brief): the
+  // user-chosen parent directory the new project will live under. Null
+  // means use the daemon's default location (.od/projects/<id>/).
+  workingDir?: string | null;
+  onChangeWorkingDir?: (dir: string | null) => void;
+  // Stage 2 of the home settings strip: the design system the new
+  // project should be stamped with. Threaded through PluginLoopSubmit
+  // to onCreateProject's designSystemId field.
+  designSystems?: DesignSystemSummary[];
+  designSystemsLoading?: boolean;
+  selectedDesignSystemId?: string | null;
+  onChangeDesignSystemId?: (id: string | null) => void;
 }
 
 type HomeMentionTab = 'all' | 'plugins' | 'skills' | 'mcp' | 'connectors';
@@ -146,6 +166,12 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
     onPickChip,
     contextItemCount,
     error,
+    workingDir = null,
+    onChangeWorkingDir,
+    designSystems = [],
+    designSystemsLoading = false,
+    selectedDesignSystemId = null,
+    onChangeDesignSystemId,
   },
   ref,
 ) {
@@ -863,6 +889,16 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
               <kbd>↵</kbd> {t('homeHero.toRun')} · <kbd>Shift</kbd>+<kbd>↵</kbd> {t('homeHero.forNewLine')}
             </span>
           </div>
+          <MicButton
+            className="home-hero__mic"
+            onCommit={(text) => {
+              const trimmed = text.trim();
+              if (trimmed.length === 0) return;
+              const sep =
+                prompt.length === 0 || /\s$/.test(prompt) ? '' : ' ';
+              onPromptChange(`${prompt}${sep}${trimmed}`);
+            }}
+          />
           <button
             type="button"
             className="home-hero__submit"
@@ -876,6 +912,16 @@ export const HomeHero = forwardRef<HTMLTextAreaElement, Props>(function HomeHero
           </button>
         </div>
       </div>
+      {onChangeWorkingDir && onChangeDesignSystemId ? (
+        <HomeHeroSettingsChips
+          workingDir={workingDir}
+          onChangeWorkingDir={onChangeWorkingDir}
+          designSystems={designSystems}
+          designSystemsLoading={designSystemsLoading}
+          selectedDesignSystemId={selectedDesignSystemId}
+          onChangeDesignSystemId={onChangeDesignSystemId}
+        />
+      ) : null}
 
       <div
         className="home-hero__rail"
