@@ -9,8 +9,12 @@ import {
 import { useAnalytics } from '../analytics/provider';
 import {
   trackArtifactExportResult,
-  trackStudioClickShareOption,
-  trackStudioViewArtifact,
+  trackArtifactHeaderClick,
+  trackArtifactToolbarClick,
+  trackPageView,
+  trackPresentPopoverClick,
+  trackShareOptionPopoverClick,
+  trackTweaksPopoverClick,
 } from '../analytics/events';
 import { MarkdownRenderer, artifactRendererRegistry } from '../artifacts/renderer-registry';
 import { renderMarkdownToSafeHtml } from '../artifacts/markdown';
@@ -59,7 +63,7 @@ import {
   requestPreviewSnapshot,
 } from '../runtime/exports';
 import { buildReactComponentSrcdoc } from '../runtime/react-component';
-import { buildLazySrcdocTransport, buildSrcdoc } from '../runtime/srcdoc';
+import { buildLazySrcdocTransport, buildSrcdoc, canActivateSrcDocTransport } from '../runtime/srcdoc';
 import {
   hasUrlModeBridge,
   htmlNeedsSandboxShim,
@@ -633,18 +637,8 @@ export function FileViewer({
     const key = `${projectId}::${file.name}`;
     if (studioViewKeyRef.current === key) return;
     studioViewKeyRef.current = key;
-    trackStudioViewArtifact(analytics.track, {
-      page: 'studio',
-      area: 'artifact',
-      element: 'artifact_view',
-      view_type: 'artifact',
-      artifact_id: anonymizeArtifactId({ projectId, fileName: file.name }),
-      artifact_kind: artifactKindToTracking({
-        rendererId: rendererMatch?.renderer.id ?? null,
-        fileKind: file.kind ?? null,
-      }),
-      project_id: projectId,
-      project_kind: projectKind,
+    trackPageView(analytics.track, {
+      page_name: 'artifact',
     });
   }, [projectId, projectKind, file.name, file.kind, rendererMatch?.renderer.id, analytics.track]);
 
@@ -3432,16 +3426,15 @@ function HtmlViewer({
   ) => {
     const requestId = analytics.newRequestId();
     const artifactId = anonymizeArtifactId({ projectId, fileName: file.name });
-    trackStudioClickShareOption(
+    const artifactKind = artifactKindToTracking({ fileKind: file.kind ?? null });
+    trackShareOptionPopoverClick(
       analytics.track,
       {
-        page: 'studio',
-        area: 'app_header',
+        page_name: 'artifact',
+        area: 'share_option_popover',
         artifact_id: artifactId,
-        element: 'share_option',
-        action: 'select_share_option',
-        share_context: 'artifact',
-        export_format: format,
+        artifact_kind: artifactKind,
+        element: format,
         project_id: projectId,
         project_kind: projectKind,
       },
@@ -3452,9 +3445,10 @@ function HtmlViewer({
       trackArtifactExportResult(
         analytics.track,
         {
-          page: 'studio',
-          area: 'app_header',
+          page_name: 'artifact',
+          area: 'share_option_popover',
           artifact_id: artifactId,
+          artifact_kind: artifactKind,
           project_id: projectId,
           project_kind: projectKind,
           export_format: format,
@@ -3478,6 +3472,55 @@ function HtmlViewer({
     } catch (err) {
       finish('failed', err instanceof Error ? err.name : 'UNKNOWN');
     }
+  };
+  // P0 helpers — keep the artifact_id + artifact_kind derivation in one place
+  // so each per-button onClick stays a one-liner. We compute lazily inside the
+  // closure because `file.kind` / `file.name` can change as the user navigates
+  // tabs without remounting HtmlViewer.
+  const fireArtifactToolbarClick = (
+    element:
+      | 'reload'
+      | 'preview'
+      | 'source'
+      | 'tweaks'
+      | 'draw'
+      | 'comment'
+      | 'pods'
+      | 'inspect'
+      | 'edit'
+      | 'zoom_out'
+      | 'zoom_level_dropdown'
+      | 'zoom_in',
+  ) => {
+    trackArtifactToolbarClick(analytics.track, {
+      page_name: 'artifact',
+      area: 'artifact_toolbar',
+      element,
+      artifact_id: anonymizeArtifactId({ projectId, fileName: file.name }),
+      artifact_kind: artifactKindToTracking({ fileKind: file.kind ?? null }),
+    });
+  };
+  const fireArtifactHeaderClick = (
+    element: 'back' | 'edit' | 'present_dropdown' | 'share_dropdown' | 'settings',
+  ) => {
+    trackArtifactHeaderClick(analytics.track, {
+      page_name: 'artifact',
+      area: 'artifact_header',
+      element,
+      artifact_id: anonymizeArtifactId({ projectId, fileName: file.name }),
+      artifact_kind: artifactKindToTracking({ fileKind: file.kind ?? null }),
+    });
+  };
+  const firePresentPopoverClick = (
+    element: 'in_this_tab' | 'fullscreen' | 'new_tab',
+  ) => {
+    trackPresentPopoverClick(analytics.track, {
+      page_name: 'artifact',
+      area: 'present_popover',
+      element,
+      artifact_id: anonymizeArtifactId({ projectId, fileName: file.name }),
+      artifact_kind: artifactKindToTracking({ fileKind: file.kind ?? null }),
+    });
   };
   const [mode, setMode] = useState<'preview' | 'source'>('preview');
   const [source, setSource] = useState<string | null>(liveHtml ?? null);
@@ -3998,21 +4041,49 @@ function HtmlViewer({
   const lazySrcDocTransport = useMemo(() => buildLazySrcdocTransport(), []);
   const [hasLazySrcDocTransport, setHasLazySrcDocTransport] = useState(useUrlLoadPreview);
   const [srcDocTransportResetKey, setSrcDocTransportResetKey] = useState(0);
+  const [srcDocShellReady, setSrcDocShellReady] = useState(false);
   const wasUrlLoadPreviewRef = useRef(useUrlLoadPreview);
   useEffect(() => {
     if (useUrlLoadPreview) setHasLazySrcDocTransport(true);
   }, [useUrlLoadPreview]);
+  // Reset the shell-ready latch whenever the srcDoc iframe re-mounts. The
+  // next shell will post `od:srcdoc-transport-ready` (or fire onLoad) and
+  // flip this back to true. See #2253.
+  useEffect(() => {
+    setSrcDocShellReady(false);
+  }, [srcDocTransportResetKey]);
+  // Listen for the shell's ready handshake. Gating activation on this is
+  // what fixes the #2253 race: opening Tweaks right after a key-driven
+  // re-mount used to post `activate` before the shell's listener was
+  // installed, dropping the message and stranding the iframe on the empty
+  // 536-byte body.
+  useEffect(() => {
+    function onMessage(ev: MessageEvent) {
+      if (ev.source !== srcDocPreviewIframeRef.current?.contentWindow) return;
+      const data = ev.data as { type?: string } | null;
+      if (data?.type !== 'od:srcdoc-transport-ready') return;
+      setSrcDocShellReady(true);
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
   const useLazySrcDocTransport = useUrlLoadPreview || hasLazySrcDocTransport;
   const srcDocTransportContent = useLazySrcDocTransport ? lazySrcDocTransport : srcDoc;
   const urlTransportSrc = useUrlLoadPreview ? activePreviewSrcUrl : 'about:blank';
   const activateSrcDocTransport = useCallback((target: HTMLIFrameElement | null = srcDocPreviewIframeRef.current) => {
+    if (!canActivateSrcDocTransport({
+      srcDoc,
+      useUrlLoadPreview,
+      useLazySrcDocTransport,
+      shellReady: srcDocShellReady,
+      activatedHtml: activatedSrcDocTransportHtmlRef.current,
+    })) return false;
     const win = target?.contentWindow;
-    if (!win || !srcDoc || useUrlLoadPreview || !useLazySrcDocTransport) return false;
-    if (activatedSrcDocTransportHtmlRef.current === srcDoc) return false;
+    if (!win) return false;
     win.postMessage({ type: 'od:srcdoc-transport-activate', html: srcDoc }, '*');
     activatedSrcDocTransportHtmlRef.current = srcDoc;
     return true;
-  }, [srcDoc, useLazySrcDocTransport, useUrlLoadPreview]);
+  }, [srcDoc, useLazySrcDocTransport, useUrlLoadPreview, srcDocShellReady]);
   useEffect(() => {
     if (useUrlLoadPreview) {
       activatedSrcDocTransportHtmlRef.current = null;
@@ -5384,7 +5455,10 @@ function HtmlViewer({
           <button
             type="button"
             className="icon-only"
-            onClick={() => setReloadKey((n) => n + 1)}
+            onClick={() => {
+              fireArtifactToolbarClick('reload');
+              setReloadKey((n) => n + 1);
+            }}
             title={t('fileViewer.reload')}
             aria-label={t('fileViewer.reloadAria')}
           >
@@ -5412,7 +5486,10 @@ function HtmlViewer({
                     type="button"
                     className={`viewer-mode-menu-item${mode === id ? ' active' : ''}`}
                     role="menuitem"
-                    onClick={() => selectMode(id)}
+                    onClick={() => {
+                      fireArtifactToolbarClick(id);
+                      selectMode(id);
+                    }}
                   >
                     <span>{label}</span>
                     {mode === id ? <Icon name="check" size={13} /> : null}
@@ -5436,7 +5513,10 @@ function HtmlViewer({
                   className="viewer-action zoom-trigger"
                   aria-haspopup="menu"
                   aria-expanded={zoomMenuOpen}
-                  onClick={() => setZoomMenuOpen((v) => !v)}
+                  onClick={() => {
+                    fireArtifactToolbarClick('zoom_level_dropdown');
+                    setZoomMenuOpen((v) => !v);
+                  }}
                   style={{ minWidth: 64 }}
                 >
                   <span style={{ fontVariantNumeric: 'tabular-nums' }}>{zoom}%</span>
@@ -5514,7 +5594,10 @@ function HtmlViewer({
                   title="Tweaks"
                   aria-haspopup="dialog"
                   aria-expanded={palettePopoverOpen}
-                  onClick={() => setPalettePopoverOpen((v) => !v)}
+                  onClick={() => {
+                    fireArtifactToolbarClick('tweaks');
+                    setPalettePopoverOpen((v) => !v);
+                  }}
                 >
                   <Icon name="tweaks" size={13} />
                   <span>Tweaks</span>
@@ -5536,7 +5619,29 @@ function HtmlViewer({
                 <PaletteTweaks
                   open={palettePopoverOpen}
                   selected={selectedPalette}
-                  onChange={setSelectedPalette}
+                  onChange={(nextPalette) => {
+                    // P0 ui_click area=tweaks_popover. status_before/after
+                    // reflect whether THIS variant was selected. Picking
+                    // "Original" (nextPalette === null) reads as turning
+                    // off the previously selected variant — record that
+                    // by passing the prior selection as variant_name.
+                    const targetVariant = nextPalette ?? selectedPalette;
+                    if (targetVariant) {
+                      const wasSelected = selectedPalette === targetVariant;
+                      const willBeSelected = nextPalette === targetVariant;
+                      trackTweaksPopoverClick(analytics.track, {
+                        page_name: 'artifact',
+                        area: 'tweaks_popover',
+                        element: 'variant_option',
+                        variant_name: targetVariant,
+                        artifact_id: anonymizeArtifactId({ projectId, fileName: file.name }),
+                        artifact_kind: artifactKindToTracking({ fileKind: file.kind ?? null }),
+                        status_before: wasSelected ? 'on' : 'off',
+                        status_after: willBeSelected ? 'on' : 'off',
+                      });
+                    }
+                    setSelectedPalette(nextPalette);
+                  }}
                   onPreview={setPreviewPalette}
                   onClose={() => setPalettePopoverOpen(false)}
                 />
@@ -5548,6 +5653,7 @@ function HtmlViewer({
                 title={t('fileViewer.draw')}
                 aria-pressed={drawOverlayOpen}
                 onClick={() => {
+                  fireArtifactToolbarClick('draw');
                   const next = !drawOverlayOpen;
                   if (!next) {
                     setDrawOverlayOpen(false);
@@ -5582,6 +5688,7 @@ function HtmlViewer({
             title={t('fileViewer.comment')}
             aria-pressed={boardMode}
             onClick={() => {
+              fireArtifactToolbarClick('comment');
               capturePreviewScrollPosition();
               if (boardMode) {
                 setBoardMode(false);
@@ -5627,7 +5734,10 @@ function HtmlViewer({
                 title="Draw a pod selection"
                 aria-label="Pods"
                 aria-pressed={boardTool === 'pod'}
-                onClick={() => activateBoard('pod')}
+                onClick={() => {
+                  fireArtifactToolbarClick('pods');
+                  activateBoard('pod');
+                }}
               >
                 <Icon name="draw" size={13} />
                 <span>Pods</span>
@@ -5641,6 +5751,7 @@ function HtmlViewer({
             title="Inspect"
             aria-pressed={inspectMode}
             onClick={() => {
+              fireArtifactToolbarClick('inspect');
               setInspectMode((v) => {
                 const next = !v;
                 if (next) {
@@ -5665,6 +5776,7 @@ function HtmlViewer({
             title={t('fileViewer.edit')}
             aria-pressed={manualEditMode}
             onClick={() => {
+              fireArtifactToolbarClick('edit');
               capturePreviewScrollPosition();
               if (!manualEditMode) {
                 setBoardMode(false);
@@ -5693,7 +5805,10 @@ function HtmlViewer({
                 className="chrome-action chrome-action-secondary present-trigger"
                 aria-haspopup="menu"
                 aria-expanded={presentMenuOpen}
-                onClick={() => setPresentMenuOpen((v) => !v)}
+                onClick={() => {
+                  fireArtifactHeaderClick('present_dropdown');
+                  setPresentMenuOpen((v) => !v);
+                }}
               >
                 <Icon name="present" size={13} />
                 <span>{t('fileViewer.present')}</span>
@@ -5701,15 +5816,15 @@ function HtmlViewer({
               </button>
               {presentMenuOpen ? (
                 <div className="present-menu" role="menu">
-                  <button role="menuitem" onClick={presentInThisTab}>
+                  <button role="menuitem" onClick={() => { firePresentPopoverClick('in_this_tab'); presentInThisTab(); }}>
                     <span className="present-icon"><Icon name="eye" size={13} /></span>{' '}
                     {t('fileViewer.presentInTab')}
                   </button>
-                  <button role="menuitem" onClick={presentFullscreen}>
+                  <button role="menuitem" onClick={() => { firePresentPopoverClick('fullscreen'); presentFullscreen(); }}>
                     <span className="present-icon"><Icon name="play" size={13} /></span>{' '}
                     {t('fileViewer.presentFullscreen')}
                   </button>
-                  <button role="menuitem" onClick={presentNewTab}>
+                  <button role="menuitem" onClick={() => { firePresentPopoverClick('new_tab'); presentNewTab(); }}>
                     <span className="present-icon"><Icon name="share" size={13} /></span>{' '}
                     {t('fileViewer.presentNewTab')}
                   </button>
@@ -5723,7 +5838,10 @@ function HtmlViewer({
                 className="chrome-action chrome-action-primary"
                 aria-haspopup="menu"
                 aria-expanded={shareMenuOpen}
-                onClick={() => setShareMenuOpen((v) => !v)}
+                onClick={() => {
+                  fireArtifactHeaderClick('share_dropdown');
+                  setShareMenuOpen((v) => !v);
+                }}
               >
                 <Icon name="share" size={13} />
                 <span>{t('fileViewer.shareLabel')}</span>
@@ -6022,6 +6140,11 @@ function HtmlViewer({
                       onLoad={() => {
                         const frame = srcDocPreviewIframeRef.current;
                         if (!useUrlLoadPreview) iframeRef.current = frame;
+                        // Belt-and-suspenders for the ready handshake: if the
+                        // postMessage racing the parent's listener registration
+                        // ever loses, the load event still tells us the shell
+                        // script ran to completion.
+                        if (useLazySrcDocTransport) setSrcDocShellReady(true);
                         activateSrcDocTransport(frame);
                         dcViewportRestoreAtRef.current = Date.now();
                         frame?.contentWindow?.postMessage({

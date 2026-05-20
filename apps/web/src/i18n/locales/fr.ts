@@ -202,6 +202,7 @@ export const fr: Dict = {
   'settings.azureDeploymentModelHint':
     'Pour Azure OpenAI, ce champ est utilisé comme nom du déploiement dans /openai/deployments/<model>. Saisissez le nom du déploiement créé dans Azure.',
   'settings.apiVersion': 'Version API',
+  'settings.byokImageModel': "Modèle de génération d'images",
   'settings.maxTokens': 'Tokens max (optionnel)',
   'settings.maxTokensHint':
     'Limite de la longueur de réponse. Chaque modèle a une valeur par défaut (affichée à titre indicatif) ; laissez vide pour l\'utiliser, ou entrez un nombre pour la remplacer.',
@@ -1470,6 +1471,24 @@ export const fr: Dict = {
   'notify.failureTitle': 'Tâche échouée',
   'notify.successBody': 'Un tour est terminé.',
   'notify.failureBody': 'La tâche s\'est terminée avec une erreur.',
+  'updater.available': 'Mise à jour disponible',
+  'updater.downloading': 'Téléchargement de la mise à jour',
+  'updater.downloadingPercent': 'Téléchargement de la mise à jour {percent}%',
+  'updater.done': 'Terminé',
+  'updater.failed': 'Échec de la mise à jour',
+  'updater.installerOpenBody': 'Le programme d’installation est ouvert. Quittez Open Design avant de remplacer l’application.',
+  'updater.installerOpened': 'Programme d’installation ouvert',
+  'updater.later': 'Plus tard',
+  'updater.openFailedFallback': 'Impossible d’ouvrir le programme d’installation.',
+  'updater.openInstaller': 'Ouvrir le programme d’installation',
+  'updater.opening': 'Ouverture...',
+  'updater.quitButton': 'Quitter Open Design',
+  'updater.quitFailedBody': 'Open Design n’a pas pu quitter.',
+  'updater.quitFailedTitle': 'Impossible de quitter',
+  'updater.quitting': 'Fermeture...',
+  'updater.ready': 'Mise à jour prête',
+  'updater.readyGeneric': 'Une nouvelle version est prête.',
+  'updater.readyVersion': 'Open Design {version} est prêt.',
   'settings.memoryModelInlineLabel': 'Modèle de mémoire',
   'settings.memoryModelInlineSameAsChat': 'Identique au chat',
   'settings.memoryModelInlineSameAsChatWithModel': 'Identique au chat ({model})',
@@ -1765,4 +1784,12 @@ export const fr: Dict = {
     'Instructions persistantes appliquées à chaque projet. Utilisez-les pour définir les préférences que le modèle doit toujours suivre.',
   'settings.customInstructionsPlaceholder':
     'ex. "Utilise toujours TypeScript. Préfère les composants fonctionnels. Réponds de façon concise."',
+
+  // Diagnostics export
+  'diagnostics.exportTitle': 'Exporter le diagnostic',
+  'diagnostics.exportButton': 'Exporter le diagnostic',
+  'diagnostics.exportHint': 'Compresse les journaux récents et les informations machine dans un zip à partager avec l\'équipe.',
+  'diagnostics.exporting': 'Exportation…',
+  'diagnostics.exportSuccess': 'Diagnostic enregistré dans {path}',
+  'diagnostics.exportFailed': 'Impossible d\'exporter le diagnostic: {message}',
 };

@@ -35,6 +35,7 @@ import {
   writeProjectTextFile,
 } from '../providers/registry';
 import { useProjectFileEvents, type ProjectEvent } from '../providers/project-events';
+import { useCoalescedCallback } from '../hooks/useCoalescedCallback';
 import {
   composeSystemPrompt,
   type AudioVoiceOption,
@@ -42,6 +43,8 @@ import {
   type ResearchOptions,
 } from '@open-design/contracts';
 import { projectKindToTracking } from '@open-design/contracts/analytics';
+import { useAnalytics } from '../analytics/provider';
+import { trackPageView } from '../analytics/events';
 import { navigate } from '../router';
 import { agentDisplayName, agentModelDisplayName } from '../utils/agentLabels';
 import { isMacPlatform } from '../utils/platform';
@@ -456,6 +459,20 @@ export function ProjectView({
   onProjectsRefresh,
 }: Props) {
   const t = useT();
+  const analytics = useAnalytics();
+  // P0 page_view page_name=chat_panel — fire once per project mount.
+  // ProjectView outlives conversation switches (ChatPane is keyed by
+  // activeConversationId so it remounts when the user switches chats,
+  // but this component does not), so page_view stays a "chat-panel
+  // entry" metric instead of becoming a "conversation switch" count.
+  // Reviewer #2285 (mrcfps, 2026-05-20 04:08) flagged the previous
+  // ChatComposer-level emit for skewing the funnel.
+  const chatPanelPageViewFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (chatPanelPageViewFiredRef.current === project.id) return;
+    chatPanelPageViewFiredRef.current = project.id;
+    trackPageView(analytics.track, { page_name: 'chat_panel' });
+  }, [analytics.track, project.id]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
     null,
@@ -486,6 +503,15 @@ export function ProjectView({
   const [liveArtifacts, setLiveArtifacts] = useState<LiveArtifactSummary[]>([]);
   const [liveArtifactEvents, setLiveArtifactEvents] = useState<LiveArtifactEventItem[]>([]);
   const [workspaceFocused, setWorkspaceFocused] = useState(false);
+  // Per-session override for the BYOK SenseAudio chat's generate_image
+  // tool. Seeded once from Settings (config.byokImageModel) so the
+  // composer dropdown opens on the user's chosen default; subsequent
+  // selections live only in this component's state — page refresh /
+  // project switch resets to the Settings default. Persistent defaults
+  // live in Settings → BYOK → SenseAudio → Image generation model.
+  const [byokImageModelOverride, setByokImageModelOverride] = useState<string>(
+    config.byokImageModel ?? '',
+  );
   // `closed` → no surface; `review` → read-only saved-state panel with a
   // preview + reopen-to-edit action (#1822); `edit` → the textarea editor.
   const [instructionsMode, setInstructionsMode] = useState<'closed' | 'review' | 'edit'>('closed');
@@ -983,13 +1009,28 @@ export function ProjectView({
   // bump filesRefresh so the file list refetches with new mtimes — which
   // propagates through to FileViewer iframes via PR #384's ?v=${mtime}
   // cache-bust, triggering an automatic preview reload without a click.
+  //
+  // Coalesce the refresh: agent rewrites surface to chokidar as an
+  // `unlink` + `add` (+ later `change`) burst within a single tick (#2195).
+  // Refreshing the file list on the intermediate `unlink` makes the open
+  // tab's active file vanish for one frame before the `add` restores it,
+  // and FileWorkspace's "tab no longer on disk" path then drops the user
+  // out of their preview. A short trailing wait absorbs the burst; the
+  // maxWait cap stops a sustained edit storm from starving the UI.
+  const refreshFilesAndDesignMd = useCallback(() => {
+    setFilesRefresh((n) => n + 1);
+    // Round 7 (mrcfps): file mutations are the dominant staleness signal
+    // post-finalize — bump the refresh key so DESIGN.md staleness
+    // recomputes against the new mtimes.
+    setDesignMdRefreshKey((n) => n + 1);
+  }, []);
+  const coalescedFileChangedRefresh = useCoalescedCallback(
+    refreshFilesAndDesignMd,
+    { wait: 80, maxWait: 250 },
+  );
   const handleProjectEvent = useCallback((evt: ProjectEvent) => {
     if (evt.type === 'file-changed') {
-      setFilesRefresh((n) => n + 1);
-      // Round 7 (mrcfps): file mutations are the dominant staleness
-      // signal post-finalize — bump the refresh key so DESIGN.md
-      // staleness recomputes against the new mtimes.
-      setDesignMdRefreshKey((n) => n + 1);
+      coalescedFileChangedRefresh();
       return;
     }
     if (evt.type === 'conversation-created') {
@@ -1037,7 +1078,7 @@ export function ProjectView({
     // Live artifact events come from chat-turn-emitted artifacts; they
     // also imply the conversation transcript changed.
     setDesignMdRefreshKey((n) => n + 1);
-  }, [onProjectsRefresh, refreshLiveArtifacts, project.id]);
+  }, [onProjectsRefresh, refreshLiveArtifacts, project.id, coalescedFileChangedRefresh]);
   useProjectFileEvents(project.id, daemonLive, handleProjectEvent);
 
   // When the URL points at a specific file, fire an open request so the
@@ -1743,6 +1784,7 @@ export function ProjectView({
         runStatus: config.mode === 'daemon' ? 'running' : undefined,
         startedAt,
       };
+      let latestAssistantMsg: ChatMessage = assistantMsg;
       const updateConversationLatestRun = (
         status: NonNullable<ChatMessage['runStatus']>,
         endedAt?: number,
@@ -1837,7 +1879,12 @@ export function ProjectView({
 
       const updateAssistant = (updater: (prev: ChatMessage) => ChatMessage) => {
         setMessages((curr) =>
-          curr.map((m) => (m.id === assistantId ? updater(m) : m)),
+          curr.map((m) => {
+            if (m.id !== assistantId) return m;
+            const updated = updater(m);
+            latestAssistantMsg = updated;
+            return updated;
+          }),
         );
       };
       let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2091,7 +2138,16 @@ export function ProjectView({
           model: choice?.model ?? null,
           reasoning: choice?.reasoning ?? null,
           onRunCreated: (runId) => {
-            updateMessageById(assistantId, (prev) => ({ ...prev, runId, runStatus: 'queued' }), true);
+            const pinnedAssistant = {
+              ...latestAssistantMsg,
+              runId,
+              runStatus: 'queued' as const,
+            };
+            latestAssistantMsg = pinnedAssistant;
+            // The view may already be on a different project/conversation;
+            // pin the daemon run to the original row so returning can reattach.
+            void saveMessage(project.id, runConversationId, pinnedAssistant);
+            updateMessageById(assistantId, (prev) => ({ ...prev, runId, runStatus: 'queued' }));
           },
           onRunStatus: (runStatus) => {
             const endedAt = isTerminalRunStatus(runStatus) ? Date.now() : undefined;
@@ -2202,6 +2258,13 @@ export function ProjectView({
             });
           },
           onError: handlers.onError,
+        }, {
+          projectId: project.id,
+          // SenseAudio BYOK chat reads this to pre-fill the tool param's
+          // default model. Prefer the live composer override; fall back
+          // to the Settings default when the composer dropdown is on
+          // "use default". Other protocols ignore unknown body fields.
+          byokImageModel: byokImageModelOverride || config.byokImageModel,
         });
       }
     },
@@ -3340,6 +3403,7 @@ export function ProjectView({
               sendDisabled={currentConversationSendDisabled}
               error={conversationLoadError ?? error ?? audioVoiceOptionsError}
               projectId={project.id}
+              projectKindForTracking={projectKindToTracking(project.metadata?.kind)}
               projectFiles={projectFiles}
               hasActiveDesignSystem={!!project.designSystemId}
               projectFileNames={projectFileNames}
@@ -3375,6 +3439,9 @@ export function ProjectView({
               onTogglePet={onTogglePet}
               onOpenPetSettings={onOpenPetSettings}
               researchAvailable={config.mode === 'daemon'}
+              byokApiProtocol={config.apiProtocol}
+              byokImageModel={byokImageModelOverride}
+              onChangeByokImageModel={setByokImageModelOverride}
               projectMetadata={project.metadata}
               onProjectMetadataChange={(metadata) => {
                 onProjectChange({ ...project, metadata });

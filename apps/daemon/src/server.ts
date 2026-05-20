@@ -186,9 +186,14 @@ import { createChatRunService } from './runs.js';
 import { reportRunCompletedFromDaemon } from './langfuse-bridge.js';
 import {
   createAnalyticsService,
+  newInsertId,
   readAnalyticsContext,
   readPublicConfigResponse,
 } from './analytics.js';
+import {
+  agentIdToTracking,
+  deriveConfigureGlobals,
+} from '@open-design/contracts/analytics';
 import {
   redactSecrets,
   testAgentConnection,
@@ -265,6 +270,8 @@ import {
   validateTarget as validateRoutineTarget,
 } from './routines.js';
 import { buildMcpInstallPayload } from './mcp-install-info.js';
+import { createDiagnosticsExportHandler } from './diagnostics-export.js';
+import { DIAGNOSTICS_EXPORT_PATH } from '@open-design/diagnostics';
 import {
   buildProjectArchive,
   buildBatchArchive,
@@ -1868,6 +1875,48 @@ export function telemetryPromptFromRunRequest(message, currentPrompt) {
   return typeof currentPrompt === 'string' ? currentPrompt : message;
 }
 
+const FORM_ANSWERS_HEADER_RE = /^\s*\[form answers\s+(?:\u2014|-)\s*([^\]\r\n]+)\]/i;
+
+function formAnswerTransitionForCurrentPrompt(currentPrompt) {
+  if (typeof currentPrompt !== 'string') return null;
+  const trimmed = currentPrompt.trim();
+  if (!trimmed) return null;
+  const match = FORM_ANSWERS_HEADER_RE.exec(trimmed);
+  if (!match) return null;
+  const rawFormId = (match[1] || 'form').trim() || 'form';
+  const formId = rawFormId.replace(/[^\w.-]/g, '') || 'form';
+  const lines = [
+    '## Latest user turn - form answers submitted',
+    trimmed,
+    '',
+    `The user has answered the ${formId} form. Do not emit another ${formId} form.`,
+  ];
+  if (formId.toLowerCase() === 'discovery') {
+    lines.push(
+      'Continue with RULE 2 / RULE 3 now. For Branch B answers, build now instead of asking another brief.',
+    );
+  } else {
+    lines.push(
+      'Treat these form answers as the active user turn instead of replaying the transcript as a fresh request.',
+    );
+  }
+  return lines.join('\n');
+}
+
+export function composeChatUserRequestForAgent(message, currentPrompt) {
+  const body =
+    typeof message === 'string' && message.trim()
+      ? message
+      : '(No extra typed instruction.)';
+  const transition = formAnswerTransitionForCurrentPrompt(currentPrompt);
+  if (!transition) return body;
+  return [
+    transition,
+    '## Full conversation transcript',
+    body,
+  ].join('\n\n');
+}
+
 export function createFinalizedMessageTelemetryReporter({
   design,
   db,
@@ -2665,11 +2714,23 @@ export function createSseResponse(
 
 export type DesktopPdfExporter = (input: DesktopExportPdfInput) => Promise<DesktopExportPdfResult>;
 
+// Loosely typed shape — we only access `namespace`, `base`, `mode`, and
+// `source` from the runtime context when building the diagnostics export.
+// Anything richer would force a dependency from server.ts into the sidecar
+// package, which the boundary checks explicitly forbid.
+export interface DaemonRuntimeContext {
+  namespace: string;
+  base: string;
+  mode?: string;
+  source?: string;
+}
+
 export interface StartServerOptions {
   desktopPdfExporter?: DesktopPdfExporter | null;
   host?: string;
   port?: number;
   returnServer?: boolean;
+  runtime?: DaemonRuntimeContext | null;
 }
 
 const DEFAULT_CHAT_RUN_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -2709,6 +2770,7 @@ export async function startServer({
   host = process.env.OD_BIND_HOST || '127.0.0.1',
   returnServer = false,
   desktopPdfExporter = null,
+  runtime = null,
 }: StartServerOptions = {}) {
   let resolvedPort = port;
   let daemonShuttingDown = false;
@@ -3458,6 +3520,17 @@ export async function startServer({
     requireLocalDaemonRequest,
     composio: composioConnectorProvider,
   });
+
+  // Gate the diagnostics export behind requireLocalDaemonRequest so it stays
+  // unreachable when daemon binds to a non-loopback address (Tailscale,
+  // 0.0.0.0, etc.). The bundle contains daemon/web/desktop logs, host
+  // metadata, and crash reports — same threat tier as connector / live-
+  // artifact endpoints, which all use the same guard.
+  app.get(
+    DIAGNOSTICS_EXPORT_PATH,
+    requireLocalDaemonRequest,
+    createDiagnosticsExportHandler({ runtime, projectRoot: PROJECT_ROOT }),
+  );
 
   // ---- Projects (DB-backed) -------------------------------------------------
 
@@ -9197,6 +9270,10 @@ export async function startServer({
       research,
       message,
     );
+    const userRequestPrompt = composeChatUserRequestForAgent(
+      message,
+      currentPrompt,
+    );
     const clientInstructionPrompt = [researchCommandContract, runContextPrompt, systemPrompt]
       .map((part) => (typeof part === 'string' ? part.trim() : ''))
       .filter(Boolean)
@@ -9215,7 +9292,7 @@ export async function startServer({
           : linkedDirsHint
             ? `# Instructions${linkedDirsHint}\n\n---\n`
             : '',
-      `# User request\n\n${message || '(No extra typed instruction.)'}${attachmentHint}${commentHint}`,
+      `# User request\n\n${userRequestPrompt}${attachmentHint}${commentHint}`,
       safeImages.length
         ? `\n\n${safeImages.map((p) => `@${p}`).join(' ')}`
         : '',
@@ -10440,6 +10517,19 @@ export async function startServer({
       }
     }
     const run = design.runs.create(meta);
+    // Capture clientType for downstream telemetry (Langfuse uses it on
+    // run-completed metadata; PostHog gets it via the request header
+    // bridge). Prefer the explicit `x-od-client` header from desktop /
+    // web sidecars, fall back to user-agent detection. Without this the
+    // run object's `clientType` stays undefined and Langfuse traces lose
+    // the surface dimension.
+    const declaredClient = String(req.get('x-od-client') ?? '').toLowerCase();
+    if (declaredClient === 'desktop' || declaredClient === 'web') {
+      run.clientType = declaredClient;
+    } else {
+      const ua = String(req.get('user-agent') ?? '');
+      run.clientType = ua.includes('Electron/') ? 'desktop' : 'web';
+    }
     if (resolvedSnapshot?.ok) {
       try {
         const { linkSnapshotToRun } = await import('./plugins/snapshots.js');
@@ -10478,6 +10568,186 @@ export async function startServer({
     }
     reconcileAssistantMessageOnRunEnd(db, design.runs, run);
     design.runs.start(run, () => startChatRun(meta, run));
+
+    // Analytics v2: emit run_created (daemon-side authoritative) and
+    // schedule run_finished on terminal state. The matching `chat-routes.ts`
+    // handler is shadowed by this earlier registration in Express; emit
+    // here so PostHog actually receives the event. Both fire under the
+    // same insert_id prefix so any web-side mirror dedupes by $insert_id.
+    const analyticsContext = readAnalyticsContext(req);
+    if (analyticsContext) {
+      const reqBody = (req.body || {}) as Record<string, unknown>;
+      const runInsertId = newInsertId();
+      const runStartedAt = Date.now();
+      // Configure-state triplet — v2 schema requires every event to carry
+      // these so PostHog dashboards can split run lifecycle by execution
+      // setup. Web-side captures inherit them from a PostHog global
+      // register, but daemon-side captures (run_created/run_finished) need
+      // to populate them at capture time. Best-effort derivation from
+      // `detectAgents()` + the request's `agentId`:
+      //   - has_available_configure_cli: any CLI on PATH appears installed
+      //   - configure_type: 'local_cli' when the run targets an installed
+      //     CLI, otherwise 'unknown' (BYOK keys live in the web client
+      //     storage and are not visible to the daemon at this layer)
+      //   - configure_availability: 'available' when the requested CLI is
+      //     installed; 'unavailable' when it's known but not installed;
+      //     'unknown' otherwise
+      const appCfgForAnalytics = await readAppConfig(RUNTIME_DATA_DIR).catch(
+        () => ({} as Record<string, unknown>),
+      );
+      const detectedAgentsForAnalytics = await detectAgents(
+        (appCfgForAnalytics as { agentCliEnv?: Record<string, unknown> }).agentCliEnv ?? {},
+      ).catch(() => [] as Array<{ id: string; available: boolean }>);
+      // BYOK credentials live in the web client (localStorage / store) and
+      // are not visible to the daemon at this layer, so we pass
+      // `byokConfigured: undefined` and let the helper fall back to the
+      // installed-CLI signal. Web-side captures use the same helper with
+      // the full credential view to keep dashboards aligned.
+      //
+      // `mode: 'daemon'` pins the call into the helper's daemon branch so
+      // `configure_availability` is judged from the requested agent's
+      // install status (not the cohort-wide "any CLI installed?" fallback).
+      // Without it, a run for an uninstalled agent would still report
+      // `available` whenever any unrelated CLI was on PATH — see PR #2285
+      // review.
+      const configureGlobals = deriveConfigureGlobals({
+        mode: 'daemon',
+        agentId: typeof reqBody.agentId === 'string' ? reqBody.agentId : null,
+        agents: detectedAgentsForAnalytics,
+      });
+      const promptText =
+        typeof reqBody.currentPrompt === 'string'
+          ? reqBody.currentPrompt
+          : typeof reqBody.message === 'string'
+            ? reqBody.message
+            : '';
+      const userQueryTokens = promptText.length > 0
+        ? Math.ceil(promptText.length / 4)
+        : 0;
+      // Only fields the current `/api/runs` create payload actually
+      // sends. The v2 schema documents extended context props
+      // (entry_from / project_kind / target_platforms / fidelity /
+      // companion_surfaces / connectors / use_speaker_notes /
+      // include_animations / reference_template / aspect /
+      // project_source) but `packages/contracts/src/api/chat.ts` and
+      // `apps/web/src/providers/daemon.ts` do not yet thread them onto
+      // the wire, so reading them here would always produce null/undef
+      // — better to omit until a follow-up extends the create payload.
+      const baseProps: Record<string, unknown> = {
+        page_name: 'chat_panel',
+        area: 'chat_composer',
+        ...configureGlobals,
+        project_id: typeof reqBody.projectId === 'string' ? reqBody.projectId : null,
+        conversation_id:
+          typeof reqBody.conversationId === 'string' ? reqBody.conversationId : null,
+        run_id: run.id,
+        design_system_id:
+          typeof reqBody.designSystemId === 'string'
+            ? reqBody.designSystemId
+            : undefined,
+        // `design_system_source` is required in the v2 contract
+        // (RunCreatedProps / RunFinishedProps). The daemon doesn't see
+        // whether the chosen design system was the workspace default,
+        // a user pick, or template-inherited — that signal lives only
+        // in the web client. Derive what we honestly know from the
+        // wire payload: 'not_applicable' when no design system was
+        // selected, 'unknown' otherwise. A follow-up that threads
+        // `designSystemSource` through `CreateRunRequest` can replace
+        // this with the precise value. See PR #2285 review 2026-05-20
+        // 04:35 for the rationale.
+        design_system_source:
+          typeof reqBody.designSystemId === 'string' && reqBody.designSystemId
+            ? 'unknown'
+            : 'not_applicable',
+        has_attachment: Array.isArray(reqBody.attachments)
+          ? (reqBody.attachments as unknown[]).length > 0
+          : false,
+        user_query_tokens: userQueryTokens,
+        model_id: typeof reqBody.model === 'string' ? reqBody.model : null,
+        agent_provider_id:
+          typeof reqBody.agentId === 'string'
+            ? agentIdToTracking(reqBody.agentId)
+            : null,
+        skill_id: typeof reqBody.skillId === 'string' ? reqBody.skillId : null,
+        mcp_id: null,
+        token_count_source: userQueryTokens > 0 ? 'estimated' : 'unknown',
+      };
+      design.analytics.capture({
+        eventName: 'run_created',
+        context: analyticsContext,
+        appVersion: design.getAppVersion(),
+        properties: baseProps,
+        insertId: runInsertId,
+      });
+      design.runs.wait(run).then((status: {
+        status: string;
+        error?: string | null;
+        errorCode?: string | null;
+        exitCode?: number | null;
+        signal?: string | null;
+      }) => {
+        const result =
+          status.status === 'succeeded'
+            ? 'success'
+            : status.status === 'canceled'
+              ? 'cancelled'
+              : 'failed';
+        let errorCode: string | undefined;
+        if (result === 'failed') {
+          errorCode = status.errorCode ?? undefined;
+          if (!errorCode) {
+            if (status.signal) errorCode = `AGENT_SIGNAL_${status.signal}`;
+            else if (typeof status.exitCode === 'number' && status.exitCode !== 0) {
+              errorCode = `AGENT_EXIT_${status.exitCode}`;
+            } else {
+              errorCode = 'AGENT_TERMINATED_UNKNOWN';
+            }
+          }
+        } else if (result === 'cancelled') {
+          errorCode = status.errorCode ?? undefined;
+        }
+        let inputTokens: number | undefined;
+        let outputTokens: number | undefined;
+        for (let i = run.events.length - 1; i >= 0; i -= 1) {
+          const ev = run.events[i];
+          const data = ev?.data as
+            | { type?: string; usage?: Record<string, unknown> | null }
+            | null
+            | undefined;
+          if (ev?.event === 'agent' && data?.type === 'usage' && data.usage) {
+            const u = data.usage;
+            if (typeof u.input_tokens === 'number') inputTokens = u.input_tokens;
+            if (typeof u.output_tokens === 'number') outputTokens = u.output_tokens;
+            if (inputTokens !== undefined || outputTokens !== undefined) break;
+          }
+        }
+        const haveUsage = inputTokens !== undefined || outputTokens !== undefined;
+        const totalTokens =
+          inputTokens !== undefined && outputTokens !== undefined
+            ? inputTokens + outputTokens
+            : undefined;
+        design.analytics.capture({
+          eventName: 'run_finished',
+          context: analyticsContext,
+          appVersion: design.getAppVersion(),
+          properties: {
+            ...baseProps,
+            area: 'chat_panel',
+            result,
+            artifact_count: 0,
+            total_duration_ms: Date.now() - runStartedAt,
+            ...(errorCode ? { error_code: errorCode } : {}),
+            ...(inputTokens !== undefined ? { input_tokens: inputTokens } : {}),
+            ...(outputTokens !== undefined ? { output_tokens: outputTokens } : {}),
+            ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
+            ...(haveUsage ? { token_count_source: 'provider_usage' } : {}),
+          },
+          insertId: `${runInsertId}-finish`,
+        });
+      }).catch(() => {
+        // wait() can't reject in current runs.ts impl, but guard anyway.
+      });
+    }
   });
 
   app.get('/api/runs', (req, res) => {
@@ -10859,6 +11129,7 @@ export async function startServer({
     db,
     design,
     http: httpDeps,
+    paths: pathDeps,
     chat: { startChatRun, submitToolResultToRun },
     agents: agentDeps,
     critique: critiqueDeps,

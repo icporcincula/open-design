@@ -252,6 +252,7 @@ export interface Dict {
   'settings.azureDeploymentModelHint': string;
   'settings.azureModelFetchHint': string;
   'settings.apiVersion': string;
+  'settings.byokImageModel': string;
   'settings.apiHint': string;
   'settings.skipForNow': string;
   'settings.getStarted': string;
@@ -624,6 +625,26 @@ export interface Dict {
   'notify.failureTitle': string;
   'notify.successBody': string;
   'notify.failureBody': string;
+
+  // Desktop updater
+  'updater.available': string;
+  'updater.downloading': string;
+  'updater.downloadingPercent': string;
+  'updater.done': string;
+  'updater.failed': string;
+  'updater.installerOpenBody': string;
+  'updater.installerOpened': string;
+  'updater.later': string;
+  'updater.openFailedFallback': string;
+  'updater.openInstaller': string;
+  'updater.opening': string;
+  'updater.quitButton': string;
+  'updater.quitFailedBody': string;
+  'updater.quitFailedTitle': string;
+  'updater.quitting': string;
+  'updater.ready': string;
+  'updater.readyGeneric': string;
+  'updater.readyVersion': string;
 
   // Entry view / tabs
   'entry.tabDesigns': string;
@@ -2190,4 +2211,12 @@ export interface Dict {
   'critiqueTheater.settingsEnabledDescription': string;
   'critiqueTheater.settingsEnabledProjectHint': string;
   'critiqueTheater.settingsEnabledNoProjectHint': string;
+
+  // Diagnostics export
+  'diagnostics.exportTitle': string;
+  'diagnostics.exportButton': string;
+  'diagnostics.exportHint': string;
+  'diagnostics.exporting': string;
+  'diagnostics.exportSuccess': string;
+  'diagnostics.exportFailed': string;
 }
