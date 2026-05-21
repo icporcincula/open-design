@@ -7,11 +7,20 @@ import { submitChatRunToolResult } from "../providers/daemon";
 import { useAnalytics } from "../analytics/provider";
 import {
   trackAssistantFeedbackButtonClick,
+  trackAssistantFeedbackClick,
+  trackAssistantFeedbackReasonClick,
   trackAssistantFeedbackReasonPanelSurfaceView,
+  trackAssistantFeedbackReasonSubmit,
   trackAssistantFeedbackReasonSubmitClick,
+  trackAssistantFeedbackReasonView,
   trackFeedbackSubmitResult,
 } from "../analytics/events";
-import type { TrackingProjectKind } from "@open-design/contracts/analytics";
+import {
+  normalizeCustomReason,
+  type TrackingFeedbackReasonCode,
+  type TrackingFeedbackRatingWithNone,
+  type TrackingProjectKind,
+} from "@open-design/contracts/analytics";
 import {
   splitOnQuestionForms,
   type QuestionForm,
@@ -543,6 +552,24 @@ function AssistantFeedback({
       run_id: runId ?? "",
       rating: reasonRating,
     });
+    // Dedicated assistant_feedback_reason_view event paired with the
+    // umbrella surface_view above. Requires the full project + conversation
+    // identity (its props type is stricter than the umbrella variant);
+    // skipped on test renders that mount AssistantMessage without those.
+    if (projectId && projectKind && conversationId) {
+      trackAssistantFeedbackReasonView(analytics.track, {
+        page: "studio",
+        area: "chat_panel",
+        element: "assistant_feedback_reason_panel",
+        view_type: "panel",
+        project_id: projectId,
+        project_kind: projectKind,
+        conversation_id: conversationId,
+        assistant_message_id: assistantMessageId,
+        run_id: runId ?? null,
+        rating: reasonRating,
+      });
+    }
   }, [
     reasonRating,
     analytics.track,
@@ -578,6 +605,26 @@ function AssistantFeedback({
       rating_before: ratingBefore,
       has_produced_files: producedFileCount > 0,
     });
+    // Dedicated assistant_feedback_click paired with the umbrella ui_click
+    // above. Carries the post-action rating in the widened union (allows
+    // 'none' for the clear path).
+    if (projectId && projectKind && conversationId) {
+      const ratingAfter: TrackingFeedbackRatingWithNone = nextRating ?? "none";
+      trackAssistantFeedbackClick(analytics.track, {
+        page: "studio",
+        area: "chat_panel",
+        element: "assistant_feedback_button",
+        action: nextRating ? "submit_feedback_rating" : "clear_feedback_rating",
+        project_id: projectId,
+        project_kind: projectKind,
+        conversation_id: conversationId,
+        assistant_message_id: assistantMessageId,
+        run_id: runId ?? null,
+        rating: ratingAfter,
+        rating_before: ratingBefore,
+        has_produced_files: producedFileCount > 0,
+      });
+    }
     onFeedback(nextRating ? { rating: nextRating } : null);
   };
   const toggleReasonCode = (code: ChatMessageFeedbackReasonCode) => {
@@ -645,6 +692,47 @@ function AssistantFeedback({
       },
       { requestId },
     );
+    // Dedicated assistant_feedback_reason_click + reason_submit paired with
+    // the umbrella ui_click + feedback_submit_result above. Both fire under
+    // the same `requestId` so PostHog can stitch click → result per the
+    // tracking spec.
+    if (projectId && projectKind && conversationId) {
+      const reasons = reasonCodes as TrackingFeedbackReasonCode[];
+      const sharedPayload = {
+        page: "studio" as const,
+        area: "chat_panel" as const,
+        project_id: projectId,
+        project_kind: projectKind,
+        conversation_id: conversationId,
+        assistant_message_id: assistantMessageId,
+        run_id: runId ?? null,
+        rating: reasonRating,
+        reason: reasons,
+        reason_count: reasons.length,
+        has_custom_reason: hasCustomReason,
+        custom_reason: hasCustomReason
+          ? normalizeCustomReason(trimmedCustomReason)
+          : "",
+      };
+      trackAssistantFeedbackReasonClick(
+        analytics.track,
+        {
+          ...sharedPayload,
+          element: "assistant_feedback_reason_submit_button",
+          action: "click_submit_feedback_reason",
+        },
+        { requestId },
+      );
+      trackAssistantFeedbackReasonSubmit(
+        analytics.track,
+        {
+          ...sharedPayload,
+          element: "assistant_feedback_reason_submit",
+          action: "submit_feedback_reason",
+        },
+        { requestId },
+      );
+    }
     onFeedback({
       rating: reasonRating,
       reasonCodes,
