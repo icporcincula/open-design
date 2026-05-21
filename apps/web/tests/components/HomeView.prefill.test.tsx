@@ -170,6 +170,28 @@ const LIVE_ARTIFACT_PLUGIN = {
   },
 };
 
+const LIVE_ARTIFACT_IMAGE_TEMPLATE_PLUGIN = {
+  ...LIVE_ARTIFACT_PLUGIN,
+  id: 'image-template-notion-team-dashboard-live-artifact',
+  title: 'Notion live artifact',
+  source: '/tmp/notion-live-artifact',
+  fsPath: '/tmp/notion-live-artifact',
+  manifest: {
+    ...LIVE_ARTIFACT_PLUGIN.manifest,
+    name: 'image-template-notion-team-dashboard-live-artifact',
+    title: 'Notion live artifact',
+    description: 'Create a live Notion dashboard artifact.',
+    od: {
+      ...LIVE_ARTIFACT_PLUGIN.manifest.od,
+      mode: 'image',
+      surface: 'image',
+      useCase: {
+        query: 'Create a refreshable Notion dashboard live artifact.',
+      },
+    },
+  },
+};
+
 const AUTHORING_DEFAULT_SCENARIO_INPUTS = {
   artifactKind: 'Open Design plugin',
   audience: 'Open Design plugin authors',
@@ -581,6 +603,122 @@ describe('HomeView prompt handoff', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
+  it('uses example preset cards as plain-text prompt fillers without binding plugin inputs', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      if (typeof url === 'string' && url === '/api/plugins') {
+        return new Response(JSON.stringify({ plugins: [WEB_PROTOTYPE_PLUGIN] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (typeof url === 'string' && url.includes('/apply')) {
+        return new Response(JSON.stringify(WEB_PROTOTYPE_APPLY_RESULT), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    stubAnimationFrame();
+
+    render(
+      <HomeView
+        projects={[]}
+        onSubmit={() => undefined}
+        onOpenProject={() => undefined}
+        onViewAllProjects={() => undefined}
+      />,
+    );
+
+    await clearActiveTypeChip();
+    fireEvent.click(await screen.findByTestId('home-hero-rail-prototype'));
+    fireEvent.click(await screen.findByTestId('home-hero-plugin-preset'));
+
+    const input = screen.getByTestId('home-hero-input') as HTMLTextAreaElement;
+    await waitFor(() => {
+      expect(input.value).toBe(
+        'Build a high-fidelity web prototype for product evaluators using the active project design system from the bundled web prototype seed.',
+      );
+    });
+    expect(fetchMock.mock.calls.some(([url]) => (
+      typeof url === 'string' && url.includes('/api/plugins/example-web-prototype/apply')
+    ))).toBe(false);
+    expect(screen.queryByTestId('home-hero-active-type-chip')).toBeNull();
+    expect(screen.queryByTestId('plugin-inputs-form')).toBeNull();
+    expect(screen.queryByTestId('home-hero-prompt-slot-fidelity')).toBeNull();
+    expect(screen.queryByTestId('home-hero-prompt-slot-artifactKind')).toBeNull();
+    expect(screen.queryByTestId('home-hero-prompt-slot-designSystem')).toBeNull();
+    expect(screen.queryByTestId('home-hero-prompt-slot-template')).toBeNull();
+  });
+
+  it('submits live-artifact example presets with chip metadata while keeping them plain-text only', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      if (typeof url === 'string' && url === '/api/plugins') {
+        return new Response(JSON.stringify({
+          plugins: [LIVE_ARTIFACT_PLUGIN, LIVE_ARTIFACT_IMAGE_TEMPLATE_PLUGIN],
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (typeof url === 'string' && url.includes('/apply')) {
+        return new Response(JSON.stringify(LIVE_ARTIFACT_APPLY_RESULT), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    stubAnimationFrame();
+    const onSubmit = vi.fn();
+
+    render(
+      <HomeView
+        projects={[]}
+        onSubmit={onSubmit}
+        onOpenProject={() => undefined}
+        onViewAllProjects={() => undefined}
+      />,
+    );
+
+    await clearActiveTypeChip();
+    fireEvent.click(await screen.findByTestId('home-hero-rail-live-artifact'));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('home-hero-plugin-preset').length).toBeGreaterThan(0);
+    });
+    const liveArtifactTemplatePreset = screen.getAllByTestId('home-hero-plugin-preset')
+      .find((item) => item.getAttribute('data-plugin-id') === LIVE_ARTIFACT_IMAGE_TEMPLATE_PLUGIN.id);
+    if (!liveArtifactTemplatePreset) {
+      throw new Error('expected live artifact image template preset to render');
+    }
+    fireEvent.click(liveArtifactTemplatePreset);
+
+    const input = screen.getByTestId('home-hero-input') as HTMLTextAreaElement;
+    await waitFor(() => {
+      expect(input.value).toBe('Create a refreshable Notion dashboard live artifact.');
+    });
+    expect(fetchMock.mock.calls.some(([url]) => (
+      typeof url === 'string' && url.includes('/apply')
+    ))).toBe(false);
+    expect(screen.queryByTestId('home-hero-active-type-chip')).toBeNull();
+    expect(screen.queryByTestId('plugin-inputs-form')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('home-hero-submit'));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      projectKind: 'prototype',
+      projectMetadata: expect.objectContaining({
+        kind: 'prototype',
+        intent: 'live-artifact',
+        fidelity: 'high-fidelity',
+      }),
+      prompt: 'Create a refreshable Notion dashboard live artifact.',
+    })));
+  });
+
   it('binds the Home rail Live artifact chip with live-artifact metadata and applies it on submit', async () => {
     const fetchMock = vi.fn<typeof fetch>(async (url) => {
       if (typeof url === 'string' && url === '/api/plugins') {
@@ -906,7 +1044,8 @@ describe('HomeView prompt handoff', () => {
 });
 
 async function clearActiveTypeChip() {
-  fireEvent.click(await screen.findByTestId('home-hero-active-type-chip'));
+  const chip = screen.queryByTestId('home-hero-active-type-chip');
+  if (chip) fireEvent.click(chip);
 }
 
 async function clickHomeShortcut(id: string) {

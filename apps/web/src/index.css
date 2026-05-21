@@ -326,10 +326,16 @@ select {
 select::-ms-expand { display: none; }
 [data-theme='dark'] select {
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%239a9690' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3 5 6 8 9 5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
 }
 @media (prefers-color-scheme: dark) {
   html:not([data-theme]) select {
     background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%239a9690' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='3 5 6 8 9 5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 12px 12px;
   }
 }
 textarea { resize: vertical; font-family: inherit; }
@@ -22277,8 +22283,11 @@ body.desktop-pet-shell .pet-task-item {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  /* Below modal backdrops; App.tsx hides the banner while Settings is open. */
-  z-index: 90;
+  /* Above modal backdrops (z-index 100) so the banner remains visible and
+     actionable even while Settings or any other modal is open. The banner
+     uses pointer-events:none on the card itself with opt-in on interactive
+     children, so it never intercepts clicks meant for the layer below. */
+  z-index: 110;
   width: 380px;
   max-width: calc(100vw - 32px);
   display: flex;

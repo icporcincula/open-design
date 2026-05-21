@@ -307,6 +307,13 @@ export type DesktopRuntimeOptions = {
    * and the runtime falls back to `discoverUrl` for API calls too.
   */
   discoverDaemonUrl?: () => Promise<string | null>;
+  /**
+   * BCP-47 locale string read from the OS by main process, forwarded
+   * to the preload via `webPreferences.additionalArguments` so the
+   * renderer can mirror it onto `__od__.client.osLocale`. Optional;
+   * when omitted the renderer falls back to navigator/localStorage.
+   */
+  osLocale?: string;
   preloadPath?: string;
   /**
    * Round-5 (lefarcen P1, mrcfps): lazy re-handshake hook. The runtime
@@ -785,7 +792,14 @@ function desktopPetUrl(baseUrl: string): string {
   return url.toString();
 }
 
-function createDesktopPetWindow(preloadPath: string): BrowserWindow {
+// Encode the OS locale before stuffing it into a Chromium argv value
+// — BCP-47 region tags shouldn't contain `;` or `=`, but the renderer's
+// `process.argv` parser is happier if we never have to worry about it.
+function osLocaleAdditionalArguments(osLocale: string | undefined): string[] | undefined {
+  return osLocale ? [`--od-os-locale=${encodeURIComponent(osLocale)}`] : undefined;
+}
+
+function createDesktopPetWindow(preloadPath: string, osLocale: string | undefined): BrowserWindow {
   const { workArea } = screen.getPrimaryDisplay();
   const petWindow = new BrowserWindow({
     width: DESKTOP_PET_WINDOW_WIDTH,
@@ -802,6 +816,7 @@ function createDesktopPetWindow(preloadPath: string): BrowserWindow {
     hasShadow: false,
     focusable: false,
     webPreferences: {
+      additionalArguments: osLocaleAdditionalArguments(osLocale),
       contextIsolation: true,
       nodeIntegration: false,
       preload: preloadPath,
@@ -969,6 +984,36 @@ function checkOptionsFromHost(options: unknown): { autoDownload?: boolean } | un
   const payload = input?.payload;
   if (payload == null || typeof payload.autoDownload !== "boolean") return undefined;
   return { autoDownload: payload.autoDownload };
+}
+
+async function reportRendererCrash(
+  options: DesktopRuntimeOptions,
+  properties: { reason: string; exit_code: number | null },
+): Promise<void> {
+  try {
+    // discoverDaemonUrl returns the real http://127.0.0.1:<port> URL the
+    // sidecar daemon listens on. In tools-dev callers omit it and fall back
+    // to discoverUrl (which is also http in dev). In packaged builds it's
+    // mandatory because the renderer-only `od://app/` scheme isn't
+    // reachable from main-process Node fetch.
+    const baseUrl = (await (options.discoverDaemonUrl?.() ?? options.discoverUrl())) ?? null;
+    if (!baseUrl) return;
+    const url = new URL("/api/observability/event", baseUrl).toString();
+    await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        event: "desktop_renderer_crash",
+        properties: {
+          reason: properties.reason,
+          exit_code: properties.exit_code,
+        },
+      }),
+    });
+  } catch {
+    // Best-effort. The user is already in a degraded state — failing to
+    // report the crash must not cascade into another failure path.
+  }
 }
 
 export async function createDesktopRuntime(options: DesktopRuntimeOptions): Promise<DesktopRuntime> {
@@ -1143,7 +1188,7 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   });
 
   const consoleEntries: DesktopConsoleEntry[] = [];
-  const petWindow = createDesktopPetWindow(preloadPath);
+  const petWindow = createDesktopPetWindow(preloadPath, options.osLocale);
   const window = new BrowserWindow({
     height: 900,
     icon: resolveDesktopIconPath(),
@@ -1157,6 +1202,7 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
     title: "Open Design",
     ...MAC_WINDOW_CHROME,
     webPreferences: {
+      additionalArguments: osLocaleAdditionalArguments(options.osLocale),
       contextIsolation: true,
       nodeIntegration: false,
       preload: preloadPath,
@@ -1167,6 +1213,20 @@ export async function createDesktopRuntime(options: DesktopRuntimeOptions): Prom
   installWindowChromeCssHook(window);
   showWindowButtons(window);
   attachDownloadSaveAsDialog(window);
+
+  // Renderer-process crashes are completely invisible to the web bundle's
+  // own analytics surface (the renderer is dead — no JS can run, no
+  // window.error fires). The main process is the last layer that can
+  // observe them, so we forward the event to the daemon's safety-event
+  // bridge (`POST /api/observability/event`), which posts directly to
+  // PostHog with `device_id = installationId`. Best-effort: a failure to
+  // reach the daemon must not block the crash recovery flow.
+  window.webContents.on("render-process-gone", (_event, details) => {
+    void reportRendererCrash(options, {
+      reason: details.reason,
+      exit_code: typeof details.exitCode === "number" ? details.exitCode : null,
+    });
+  });
 
   const sendUpdaterStatus = (status = options.updater?.snapshot() ?? unavailableUpdaterStatus()) => {
     if (window.isDestroyed()) return;

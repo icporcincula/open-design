@@ -22,7 +22,12 @@ afterEach(() => {
   cleanup();
 });
 
-function makePlugin(id: string, mode: string, title = id): InstalledPluginRecord {
+function makePlugin(
+  id: string,
+  mode: string,
+  title = id,
+  extraTags: string[] = [],
+): InstalledPluginRecord {
   return {
     id,
     title,
@@ -36,7 +41,7 @@ function makePlugin(id: string, mode: string, title = id): InstalledPluginRecord
       version: '1.0.0',
       title,
       description: 'Plugin preset fixture',
-      tags: [mode],
+      tags: [mode, ...extraTags],
       od: {
         mode,
         useCase: {
@@ -167,6 +172,51 @@ describe('HomeHero intent rail', () => {
     );
   });
 
+  it('keeps Hatch Pet at the end of the image example presets', () => {
+    const hatchPet = makePlugin('example-hatch-pet', 'image', 'Hatch Pet');
+    const imagePoster = makePlugin('image-template-poster', 'image', 'Image Poster');
+    const stoneInfographic = makePlugin('image-template-stone', 'image', 'Stone Infographic');
+    renderHero({
+      activeChipId: 'image',
+      pluginOptions: [hatchPet, imagePoster, stoneInfographic],
+    });
+
+    const presets = screen.getAllByTestId('home-hero-plugin-preset');
+    expect(presets.map((preset) => preset.textContent)).toEqual([
+      expect.stringContaining('Image Poster'),
+      expect.stringContaining('Stone Infographic'),
+      expect.stringContaining('Hatch Pet'),
+    ]);
+  });
+
+  it('moves live artifact presets out of Image and into Live artifact examples', () => {
+    const imagePoster = makePlugin('image-template-poster', 'image', 'Image Poster');
+    const notionDashboard = makePlugin(
+      'image-template-notion-team-dashboard-live-artifact',
+      'image',
+      'Notion-style Team Dashboard (Live Artifact)',
+      ['live-artifact'],
+    );
+    renderHero({
+      activeChipId: 'image',
+      pluginOptions: [imagePoster, notionDashboard],
+    });
+
+    let presets = screen.getAllByTestId('home-hero-plugin-preset');
+    expect(presets).toHaveLength(1);
+    expect(presets[0]?.textContent).toContain('Image Poster');
+
+    cleanup();
+    renderHero({
+      activeChipId: 'live-artifact',
+      pluginOptions: [imagePoster, notionDashboard],
+    });
+
+    presets = screen.getAllByTestId('home-hero-plugin-preset');
+    expect(presets).toHaveLength(1);
+    expect(presets[0]?.textContent).toContain('Notion-style Team Dashboard (Live Artifact)');
+  });
+
   it('disables every visible chip while a plugin apply is in flight', () => {
     renderHero({ pendingPluginId: 'od-figma-migration', pendingChipId: 'figma' });
     for (const chip of HOME_HERO_CHIPS.filter((item) => item.group === 'create')) {
@@ -186,10 +236,11 @@ describe('HomeHero intent rail', () => {
       .closest('[data-rail-group]');
 
     expect(createPluginGroup?.getAttribute('data-rail-group')).toBe('migrate');
-    for (const id of ['figma', 'folder', 'template']) {
+    for (const id of ['figma', 'template']) {
       expect(screen.getByTestId(`home-hero-rail-${id}`).closest('[data-rail-group]'))
         .toBe(createPluginGroup);
     }
+    expect(screen.queryByTestId('home-hero-rail-folder')).toBeNull();
   });
 
   it('keeps the generic fallback in the free-form prompt instead of an Other chip', () => {
@@ -202,7 +253,7 @@ describe('HomeHero intent rail', () => {
   it('migration chips carry the right action discriminator', () => {
     expect(findChip('create-plugin')?.action).toMatchObject({ kind: 'create-plugin' });
     expect(findChip('figma')?.action).toMatchObject({ kind: 'apply-figma-migration' });
-    expect(findChip('folder')?.action).toMatchObject({ kind: 'import-folder' });
+    expect(findChip('folder')).toBeUndefined();
     expect(findChip('template')?.action).toMatchObject({ kind: 'open-template-picker' });
   });
 

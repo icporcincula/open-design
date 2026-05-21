@@ -790,6 +790,12 @@ export interface Dict {
   'workingDirPicker.showInFileManager': string;
   'workingDirPicker.replace': string;
   'workingDirPicker.recent': string;
+  'handoff.toTarget': string;
+  'handoff.action': string;
+  'handoff.fallbackTitle': string;
+  'handoff.chooseTargetAria': string;
+  'handoff.notInstalled': string;
+  'handoff.notDetectedTitle': string;
   'designSystemPicker.select': string;
   'designSystemPicker.loading': string;
   'designSystemPicker.searchPlaceholder': string;
@@ -817,9 +823,6 @@ export interface Dict {
   'pluginsHome.emptyCatalog': string;
   'pluginsHome.emptyFiltered': string;
   'pluginsHome.clearFilters': string;
-  'pluginsHome.contributeTitle': string;
-  'pluginsHome.contributeBody': string;
-  'pluginsHome.starterPrefix': string;
   'pluginsHome.modeAria': string;
   'pluginsHome.featured': string;
   'pluginsHome.totalInCatalog': string;
@@ -1564,7 +1567,6 @@ export interface Dict {
   'chat.conversationsAria': string;
   'chat.newConversation': string;
   'chat.newConversationsTitle': string;
-  'chat.resumeConversation': string;
   'chat.conversationsHeading': string;
   'chat.new': string;
   'chat.emptyConversations': string;
