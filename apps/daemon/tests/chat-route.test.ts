@@ -439,6 +439,85 @@ process.stdin.on('end', () => {
     );
   });
 
+  it('propagates ad-hoc skill critique policy into the chat resolver', async () => {
+    if (!process.env.OD_DATA_DIR) {
+      throw new Error('OD_DATA_DIR is required for user skill critique-policy tests');
+    }
+
+    const skillId = `critique-opt-out-${randomUUID()}`;
+    const skillDir = resolve(process.env.OD_DATA_DIR, 'skills', skillId);
+    const originalCritiqueEnabled = process.env.OD_CRITIQUE_ENABLED;
+
+    await fsp.mkdir(skillDir, { recursive: true });
+    await fsp.writeFile(
+      resolve(skillDir, 'SKILL.md'),
+      `---
+name: ${skillId}
+description: Ad-hoc critique opt-out regression fixture.
+od:
+  critique:
+    policy: opt-out
+---
+
+# Critique opt-out fixture
+
+This skill should suppress critique when selected through skillIds.
+`,
+      'utf8',
+    );
+
+    process.env.OD_CRITIQUE_ENABLED = 'true';
+
+    try {
+      await withFakeAgent(
+        'opencode',
+        `
+let prompt = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  prompt += chunk;
+});
+process.stdin.on('end', () => {
+  const checks = [
+    prompt.includes('## Composed skill — ${skillId}') ? 'has-opt-out-skill-header' : 'missing-opt-out-skill-header',
+    prompt.includes('<CRITIQUE_RUN') ? 'unexpected-critique-panel' : 'critique-panel-disabled-by-skill-policy',
+  ];
+  console.log(JSON.stringify({ type: 'step_start' }));
+  console.log(JSON.stringify({ type: 'text', part: { text: checks.join('\\n') } }));
+  console.log(JSON.stringify({ type: 'step_finish', part: { tokens: { input: 1, output: 1 } } }));
+  process.exit(0);
+});
+`,
+        async () => {
+          const response = await fetch(`${baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agentId: 'opencode',
+              designSystemId: 'default',
+              message: 'draft an opt-out skill artifact',
+              skillIds: [skillId],
+            }),
+          });
+          const body = await response.text();
+
+          expect(response.ok).toBe(true);
+          expect(body).toContain('has-opt-out-skill-header');
+          expect(body).toContain('critique-panel-disabled-by-skill-policy');
+          expect(body).not.toContain('missing-opt-out-skill-header');
+          expect(body).not.toContain('unexpected-critique-panel');
+        },
+      );
+    } finally {
+      if (originalCritiqueEnabled == null) {
+        delete process.env.OD_CRITIQUE_ENABLED;
+      } else {
+        process.env.OD_CRITIQUE_ENABLED = originalCritiqueEnabled;
+      }
+      await fsp.rm(skillDir, { recursive: true, force: true });
+    }
+  });
+
   it('canonicalizes aliased skill ids before deduping composed skills', async () => {
     await withFakeAgent(
       'opencode',
