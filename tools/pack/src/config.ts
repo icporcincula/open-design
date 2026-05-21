@@ -85,6 +85,23 @@ export type ToolPackConfig = {
    */
   posthogKey?: string;
   posthogHost?: string;
+  /**
+   * Personal API key (`phx_...`) used by the @posthog/cli sourcemap helper to
+   * upload browser sourcemaps to PostHog after `next build` and before the
+   * web bundle is copied into the Electron package. Sourced from
+   * `POSTHOG_CLI_API_KEY` (or the legacy `POSTHOG_PERSONAL_API_KEY` alias)
+   * in CI; when missing (local packaging by a contributor, fork builds, PRs)
+   * the helper still strips the .map files so source never leaks into the
+   * shipped installer — it just skips the upload step.
+   */
+  posthogCliApiKey?: string;
+  /**
+   * PostHog project ID (e.g. `420348` for the official Open Design project)
+   * used by `@posthog/cli sourcemap upload`. Sourced from
+   * `POSTHOG_CLI_PROJECT_ID` (or the alias `POSTHOG_PROJECT_ID`) in CI.
+   * Required for upload to be attempted; missing → strip-only path.
+   */
+  posthogCliProjectId?: string;
   to: ToolPackBuildOutput;
   webOutputMode: ToolPackWebOutputMode;
   workspaceRoot: string;
@@ -149,6 +166,30 @@ function resolveToolPackPosthogHost(value: string | undefined): string | undefin
     throw new Error(`POSTHOG_HOST must be http(s): ${value}`);
   }
   return normalized.replace(/\/+$/, "");
+}
+
+function resolveToolPackPosthogCliApiKey(value: string | undefined): string | undefined {
+  if (value == null) return undefined;
+  const normalized = value.trim();
+  if (normalized.length === 0) return undefined;
+  // Personal API keys start with `phx_`. As with POSTHOG_KEY, third-party
+  // PostHog deployments may use different prefixes; only flag obviously-wrong
+  // values (whitespace, control chars) so a misconfigured CI secret doesn't
+  // silently corrupt the upload step.
+  if (/[\s\x00-\x1f]/.test(normalized)) {
+    throw new Error(`POSTHOG_CLI_API_KEY contains whitespace or control chars`);
+  }
+  return normalized;
+}
+
+function resolveToolPackPosthogCliProjectId(value: string | undefined): string | undefined {
+  if (value == null) return undefined;
+  const normalized = value.trim();
+  if (normalized.length === 0) return undefined;
+  if (!/^[0-9]+$/.test(normalized)) {
+    throw new Error(`POSTHOG_CLI_PROJECT_ID must be a numeric project id: ${value}`);
+  }
+  return normalized;
 }
 
 function resolveToolPackTelemetryRelayUrl(value: string | undefined): string | undefined {
@@ -239,6 +280,12 @@ export function resolveToolPackConfig(
     telemetryRelayUrl: resolveToolPackTelemetryRelayUrl(process.env.OPEN_DESIGN_TELEMETRY_RELAY_URL),
     posthogKey: resolveToolPackPosthogKey(process.env.POSTHOG_KEY),
     posthogHost: resolveToolPackPosthogHost(process.env.POSTHOG_HOST),
+    posthogCliApiKey: resolveToolPackPosthogCliApiKey(
+      process.env.POSTHOG_CLI_API_KEY ?? process.env.POSTHOG_PERSONAL_API_KEY,
+    ),
+    posthogCliProjectId: resolveToolPackPosthogCliProjectId(
+      process.env.POSTHOG_CLI_PROJECT_ID ?? process.env.POSTHOG_PROJECT_ID,
+    ),
     to: resolveToolPackBuildOutput(platform, options.to),
     webOutputMode: resolveToolPackWebOutputMode(platform, process.env.OD_WEB_OUTPUT_MODE),
     workspaceRoot: WORKSPACE_ROOT,

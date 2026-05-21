@@ -27,6 +27,7 @@ import {
   shouldInstallInternalPackageForWinPrebundle,
   shouldUseWinStandalonePrebundle,
 } from "../win-prebundle.js";
+import { processWebSourcemaps } from "../web-sourcemaps.js";
 import { ensureWorkspaceBuildArtifacts } from "../workspace-build.js";
 import {
   ELECTRON_BUILDER_BUILD_DEPENDENCIES_FROM_SOURCE,
@@ -128,6 +129,10 @@ async function buildWorkspaceArtifacts(config: ToolPackConfig): Promise<void> {
   try {
     await runPnpm(config, ["--filter", "@open-design/web", "build"], { OD_WEB_OUTPUT_MODE: config.webOutputMode });
     await runPnpm(config, ["--filter", "@open-design/web", "build:sidecar"]);
+    // Inject chunk IDs + upload browser sourcemaps to PostHog, then strip
+    // .map files before any packaging step copies the web output into the
+    // Electron resources. See `tools/pack/src/web-sourcemaps.ts`.
+    await processWebSourcemaps(config);
   } finally {
     if (previousWebNextEnv == null) await rm(webNextEnvPath, { force: true });
     else await writeFile(webNextEnvPath, previousWebNextEnv, "utf8");

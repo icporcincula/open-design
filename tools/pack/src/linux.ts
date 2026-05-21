@@ -29,6 +29,7 @@ import {
 import type { ToolPackConfig } from "./config.js";
 import { copyBundledResourceTrees, linuxResources } from "./resources.js";
 import { electronBuilderVersionForAppVersion, readRuntimeAppVersion } from "./versions.js";
+import { processWebSourcemaps } from "./web-sourcemaps.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -377,6 +378,10 @@ async function buildWorkspaceArtifacts(config: ToolPackConfig): Promise<void> {
   try {
     await runPnpm(config, ["--filter", "@open-design/web", "build"], { OD_WEB_OUTPUT_MODE: "server" });
     await runPnpm(config, ["--filter", "@open-design/web", "build:sidecar"]);
+    // Inject chunk IDs + upload browser sourcemaps to PostHog, then strip
+    // .map files before AppImage packaging. See
+    // `tools/pack/src/web-sourcemaps.ts`.
+    await processWebSourcemaps(config);
   } finally {
     if (previousWebNextEnv == null) {
       await rm(webNextEnvPath, { force: true });
