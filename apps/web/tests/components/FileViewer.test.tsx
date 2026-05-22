@@ -1468,14 +1468,14 @@ describe('FileViewer tweaks toolbar', () => {
       />,
     );
 
-    clickAgentTool('board-mode-toggle');
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
 
     expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
     expect(screen.queryByTestId('comment-saved-marker-pin-applying')).toBeNull();
     expect(screen.queryByText('Already sent to Claude')).toBeNull();
   });
 
-  it('keeps the picker hint clear of the open comment side panel', () => {
+  it('keeps comments and annotation picker mutually exclusive', () => {
     render(
       <FileViewer
         projectId="project-1"
@@ -1485,21 +1485,22 @@ describe('FileViewer tweaks toolbar', () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('true');
+
     clickAgentTool('board-mode-toggle');
 
-    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
-    expect(screen.getByTestId('inspect-empty-hint-container').className).toContain(
-      'comment-side-panel-open',
-    );
-
-    const closeButton = screen
-      .getByTestId('comment-side-panel')
-      .querySelector<HTMLButtonElement>('.comment-side-close');
-    expect(closeButton).toBeTruthy();
-    fireEvent.click(closeButton!);
-
     expect(screen.queryByTestId('comment-side-panel')).toBeNull();
-    expect(screen.queryByTestId('comment-side-collapsed-rail')).toBeNull();
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('board-mode-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('inspect-empty-hint-container')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
+
+    expect(screen.getByTestId('comment-side-panel')).toBeTruthy();
+    expect(screen.getByTestId('comment-panel-toggle').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('board-mode-toggle').getAttribute('aria-pressed')).toBe('false');
     expect(screen.queryByTestId('inspect-empty-hint-container')).toBeNull();
   });
 
@@ -1542,9 +1543,14 @@ describe('FileViewer tweaks toolbar', () => {
       />,
     );
 
-    clickAgentTool('board-mode-toggle');
+    fireEvent.click(screen.getByTestId('comment-panel-toggle'));
 
     expect(screen.getAllByTestId('comment-side-item')[0]?.textContent).toContain('Newer comment');
+    expect(screen.getAllByTestId('comment-side-item')[1]?.textContent).toContain('Older comment');
+
+    clickAgentTool('board-mode-toggle');
+
+    expect(screen.queryByTestId('comment-side-panel')).toBeNull();
     expect(screen.getByTestId('comment-saved-marker-pin-newer').textContent).toContain('1');
     expect(screen.getByTestId('comment-saved-marker-pin-older').textContent).toContain('2');
   });

@@ -3684,6 +3684,7 @@ function HtmlViewer({
   const [inTabPresent, setInTabPresent] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [boardMode, setBoardMode] = useState(false);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [boardTool, setBoardTool] = useState<BoardTool>('inspect');
   const [inspectMode, setInspectMode] = useState(false);
   const [palettePopoverOpen, setPalettePopoverOpen] = useState(false);
@@ -3755,8 +3756,8 @@ function HtmlViewer({
     onManualEditModeChange?.(false);
   }, [onManualEditModeChange]);
   useEffect(() => {
-    onCommentModeChange?.(boardMode);
-  }, [boardMode, onCommentModeChange]);
+    onCommentModeChange?.(commentPanelOpen);
+  }, [commentPanelOpen, onCommentModeChange]);
   useEffect(() => () => {
     onCommentModeChange?.(false);
   }, [onCommentModeChange]);
@@ -3781,7 +3782,7 @@ function HtmlViewer({
     };
   }, [manualEditMode, manualEditPortalId]);
   useEffect(() => {
-    if (!boardMode || !commentPortalId) {
+    if (!commentPanelOpen || !commentPortalId) {
       setCommentPortalHost(null);
       return;
     }
@@ -3799,7 +3800,7 @@ function HtmlViewer({
       if (raf) window.cancelAnimationFrame(raf);
       setCommentPortalHost(null);
     };
-  }, [boardMode, commentPortalId]);
+  }, [commentPanelOpen, commentPortalId]);
   const capturePreviewScrollPosition = useCallback(() => {
     const host = previewBodyRef.current;
     let frameLeft = 0;
@@ -5493,6 +5494,7 @@ function HtmlViewer({
   function activateBoardPicker(nextTool: BoardTool) {
     clearBoardComposer();
     fireArtifactToolbarClick(nextTool === 'pod' ? 'pods' : 'comment');
+    setCommentPanelOpen(false);
     activateBoard(nextTool);
     setAgentToolsOpen(false);
   }
@@ -5528,6 +5530,7 @@ function HtmlViewer({
       return;
     }
     const activateDraw = () => {
+      setCommentPanelOpen(false);
       setBoardMode(false);
       clearBoardComposer();
       setInspectMode(false);
@@ -5555,6 +5558,7 @@ function HtmlViewer({
       return;
     }
     const activateComment = () => {
+      setCommentPanelOpen(false);
       clearBoardComposer();
       setInspectMode(false);
       setDrawOverlayOpen(false);
@@ -5571,11 +5575,39 @@ function HtmlViewer({
     activateComment();
   }
 
+  function toggleCommentPanel() {
+    fireArtifactToolbarClick('comment');
+    const activatePanel = () => {
+      setCommentPanelOpen((open) => {
+        const next = !open;
+        if (next) {
+          setBoardMode(false);
+          clearBoardComposer();
+          setInspectMode(false);
+          setDrawOverlayOpen(false);
+          setManualEditMode(false);
+          setMode('preview');
+        }
+        return next;
+      });
+      setCommentSidePanelCollapsed(false);
+      closeArtifactToolMenus();
+    };
+    if (manualEditMode) {
+      void exitManualEditModeAfterFlush().then((ok) => {
+        if (ok) activatePanel();
+      });
+      return;
+    }
+    activatePanel();
+  }
+
   function activateInspectTool() {
     fireArtifactToolbarClick('inspect');
     setInspectMode((v) => {
       const next = !v;
       if (next) {
+        setCommentPanelOpen(false);
         setBoardMode(false);
         clearBoardComposer();
         setManualEditMode(false);
@@ -5592,6 +5624,7 @@ function HtmlViewer({
     fireArtifactToolbarClick('edit');
     capturePreviewScrollPosition();
     if (!manualEditMode) {
+      setCommentPanelOpen(false);
       setBoardMode(false);
       clearBoardComposer();
       setInspectMode(false);
@@ -5884,14 +5917,14 @@ function HtmlViewer({
       docked={Boolean(commentPortalHost)}
     />
   ) : null;
-  const commentSidePanel = boardMode ? (
+  const commentSidePanel = commentPanelOpen ? (
     <CommentSidePanel
       comments={visibleSideComments}
       selectedIds={selectedSideCommentIds}
       collapsed={commentPortalHost ? false : commentSidePanelCollapsed}
       onCollapsedChange={setCommentSidePanelCollapsed}
       onClose={() => {
-        setBoardMode(false);
+        setCommentPanelOpen(false);
         setCommentSidePanelCollapsed(false);
         clearBoardComposer();
       }}
@@ -6034,10 +6067,23 @@ function HtmlViewer({
                   aria-pressed={boardMode && boardTool === 'inspect'}
                   onClick={activateCommentTool}
                 >
-                  <RemixIcon name="message-3-line" size={15} />
+                  <RemixIcon name="chat-new-line" size={15} />
                   {boardMode && boardTool === 'inspect' ? <span className="viewer-action-active-dot" aria-hidden /> : null}
                 </button>
               </div>
+              <button
+                type="button"
+                className={`viewer-action viewer-action-icon viewer-comment-toggle${commentPanelOpen ? ' active' : ''}`}
+                data-testid="comment-panel-toggle"
+                data-tooltip={t('chat.tabComments')}
+                title={t('chat.tabComments')}
+                aria-label={t('chat.tabComments')}
+                aria-pressed={commentPanelOpen}
+                onClick={toggleCommentPanel}
+              >
+                <RemixIcon name="message-3-line" size={15} />
+                {commentPanelOpen ? <span className="viewer-action-active-dot" aria-hidden /> : null}
+              </button>
               <button
                 className={`viewer-action viewer-action-icon${manualEditMode ? ' active' : ''}`}
                 type="button"
@@ -6242,17 +6288,30 @@ function HtmlViewer({
             </>
           ) : null}
           {!showPreviewToolbarControls ? (
-            <button
-              type="button"
-              className={`viewer-action viewer-comment-toggle${boardMode && boardTool === 'inspect' ? ' active' : ''}`}
-              data-testid="board-mode-toggle"
-              title={t('fileViewer.comment')}
-              aria-pressed={boardMode && boardTool === 'inspect'}
-              onClick={activateCommentTool}
-            >
-              <RemixIcon name="message-3-line" size={14} />
-              <span>{t('fileViewer.comment')}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className={`viewer-action viewer-comment-toggle${boardMode && boardTool === 'inspect' ? ' active' : ''}`}
+                data-testid="board-mode-toggle"
+                title={t('fileViewer.comment')}
+                aria-pressed={boardMode && boardTool === 'inspect'}
+                onClick={activateCommentTool}
+              >
+                <RemixIcon name="chat-new-line" size={14} />
+                <span>{t('fileViewer.comment')}</span>
+              </button>
+              <button
+                type="button"
+                className={`viewer-action viewer-comment-toggle${commentPanelOpen ? ' active' : ''}`}
+                data-testid="comment-panel-toggle"
+                title={t('chat.tabComments')}
+                aria-pressed={commentPanelOpen}
+                onClick={toggleCommentPanel}
+              >
+                <RemixIcon name="message-3-line" size={14} />
+                <span>{t('chat.tabComments')}</span>
+              </button>
+            </>
           ) : null}
         </div>
       </div>
@@ -6685,7 +6744,7 @@ function HtmlViewer({
               && !activeCommentTarget ? (
               <div
                 className={`inspect-empty-hint-container${
-                  boardMode && !commentSidePanelCollapsed ? ' comment-side-panel-open' : ''
+                  commentPanelOpen && !commentSidePanelCollapsed ? ' comment-side-panel-open' : ''
                 }`}
                 data-testid="inspect-empty-hint-container"
               >
