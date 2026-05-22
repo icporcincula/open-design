@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { buildCreateArtifactRequestBody, createProjectArtifactFile } from '../src/artifact-create.js';
-import { listFiles, writeProjectFile } from '../src/projects.js';
+import { listFiles, projectFileWriteTestHooks, writeProjectFile } from '../src/projects.js';
 
 describe('normal artifact create helper', () => {
   it('builds the non-overwrite HTTP request body used by MCP and CLI', () => {
@@ -157,6 +157,45 @@ describe('normal artifact create helper', () => {
         }),
       ]);
     } finally {
+      await rm(projectsRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('exposes the explicit manifest during the entry-file visibility window for new artifacts', async () => {
+    const projectsRoot = await mkdtemp(path.join(tmpdir(), 'od-artifact-write-race-'));
+    let snapshot: Awaited<ReturnType<typeof listFiles>> = [];
+    try {
+      projectFileWriteTestHooks.afterBodyWrite = async ({ hasArtifactManifest }) => {
+        expect(hasArtifactManifest).toBe(true);
+        snapshot = await listFiles(projectsRoot, 'project-1');
+      };
+
+      await (writeProjectFile as any)(
+        projectsRoot,
+        'project-1',
+        'real-daemon-smoke.html',
+        '<!doctype html><html><body><h1>Real Daemon Smoke</h1></body></html>',
+        {
+          artifactManifest: {
+            kind: 'html',
+            renderer: 'html',
+            exports: ['html', 'pdf', 'zip'],
+            title: 'Real Daemon Smoke',
+          },
+        },
+      );
+
+      expect(snapshot).toEqual([
+        expect.objectContaining({
+          name: 'real-daemon-smoke.html',
+          artifactManifest: expect.objectContaining({
+            entry: 'real-daemon-smoke.html',
+            title: 'Real Daemon Smoke',
+          }),
+        }),
+      ]);
+    } finally {
+      projectFileWriteTestHooks.afterBodyWrite = null;
       await rm(projectsRoot, { recursive: true, force: true });
     }
   });

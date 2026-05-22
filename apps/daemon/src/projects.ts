@@ -34,6 +34,15 @@ export const projectFileRenameTestHooks = {
   beforeCommit: null as null | ((paths: { source: string; target: string }) => Promise<void> | void),
 };
 
+export const projectFileWriteTestHooks = {
+  afterBodyWrite: null as null | ((input: {
+    projectsRoot: string;
+    projectId: string;
+    name: string;
+    hasArtifactManifest: boolean;
+  }) => Promise<void> | void),
+};
+
 export function projectDir(projectsRoot, projectId) {
   if (!isSafeId(projectId)) throw new Error('invalid project id');
   return path.join(projectsRoot, projectId);
@@ -627,14 +636,31 @@ export async function writeProjectFile(
   const dir = await ensureProject(projectsRoot, projectId, metadata);
   const safeName = sanitizePath(name);
   const target = await resolveSafeReal(dir, safeName);
+  let targetExists = false;
   if (!overwrite) {
     try {
       await stat(target);
+      targetExists = true;
       const err = new Error('file already exists');
       err.code = 'EEXIST';
       throw err;
     } catch (err) {
-      if (!err || err.code !== 'ENOENT') throw err;
+      if (err && err.code === 'ENOENT') {
+        targetExists = false;
+      } else {
+        throw err;
+      }
+    }
+  } else {
+    try {
+      await stat(target);
+      targetExists = true;
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        targetExists = false;
+      } else {
+        throw err;
+      }
     }
   }
   await mkdir(path.dirname(target), { recursive: true });
@@ -692,10 +718,24 @@ export async function writeProjectFile(
       }
     }
   }
-  await writeFile(target, body);
+  let manifestTarget = null;
   if (validatedManifest) {
     const manifestFileName = artifactManifestNameFor(safeName);
-    const manifestTarget = await resolveSafeReal(dir, manifestFileName);
+    manifestTarget = await resolveSafeReal(dir, manifestFileName);
+    // On first publish, make the sidecar visible before the entry file so a
+    // concurrent listFiles() read cannot fall back to a legacy filename title.
+    if (!targetExists) {
+      await writeFile(manifestTarget, JSON.stringify(validatedManifest, null, 2));
+    }
+  }
+  await writeFile(target, body);
+  await projectFileWriteTestHooks.afterBodyWrite?.({
+    projectsRoot,
+    projectId,
+    name: safeName,
+    hasArtifactManifest: !!validatedManifest,
+  });
+  if (validatedManifest && manifestTarget && targetExists) {
     await writeFile(manifestTarget, JSON.stringify(validatedManifest, null, 2));
   }
   const st = await stat(target);
