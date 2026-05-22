@@ -8,6 +8,7 @@ const repoRoot = resolve(scriptDir, "..");
 
 const buildTargets = [
   "packages/contracts",
+  "packages/platform",
   "packages/download",
   "packages/host",
   "packages/registry-protocol",
@@ -15,7 +16,6 @@ const buildTargets = [
   "packages/plugin-runtime",
   "packages/sidecar-proto",
   "packages/sidecar",
-  "packages/platform",
   "packages/diagnostics",
   "tools/dev",
   "tools/pack",
