@@ -53,20 +53,6 @@ jobs:
           node-version: 24
           package-manager-cache: false
 
-      - name: Resolve pnpm store path
-        id: pnpm-store
-        shell: bash
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore pnpm store cache
-        uses: actions/cache/restore@v5.0.5
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Download PR visual artifact
         uses: actions/download-artifact@v8
         with:
@@ -145,6 +131,29 @@ jobs:
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "capture_outcome=$capture_outcome" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted base revision
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/checkout@v6.0.2
+        with:
+          clean: false
+          fetch-depth: 0
+          repository: ${{ github.repository }}
+          ref: ${{ steps.manifest.outputs.base_sha }}
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pnpm store cache
+        uses: actions/cache/restore@v5.0.5
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Stop stale visual runs
         id: stale

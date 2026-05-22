@@ -49,13 +49,20 @@ type ListPendingApprovalRunsDeps = {
 const dryRun = process.env.DRY_RUN === "true";
 const defaultPendingRunPollIntervalMs = 3_000;
 const defaultPendingRunFirstAppearanceTimeoutMs = 4 * 60_000;
-const defaultPendingRunSettlingPollAttempts = 3;
+const defaultPendingRunSettlingWindowMs = 30_000;
 
 type PendingRunPollingConfig = {
   pollIntervalMs?: number;
   firstAppearanceTimeoutMs?: number;
-  settlingPollAttempts?: number;
+  settlingWindowMs?: number;
 };
+
+function pendingRunSetSignature(runs: WorkflowRun[]): string {
+  return runs
+    .map((run) => `${run.id}:${run.head_sha}:${normalizeWorkflowPath(run.path)}`)
+    .sort()
+    .join(",");
+}
 
 // Workflow allowlisting is the security boundary: fork PRs may touch broader
 // source paths, but this script only approves low-privilege pull_request
@@ -199,7 +206,7 @@ export async function waitForPendingApprovalRuns(
 ): Promise<WorkflowRun[]> {
   const pollIntervalMs = config.pollIntervalMs ?? defaultPendingRunPollIntervalMs;
   const firstAppearanceTimeoutMs = config.firstAppearanceTimeoutMs ?? defaultPendingRunFirstAppearanceTimeoutMs;
-  const settlingPollAttempts = config.settlingPollAttempts ?? defaultPendingRunSettlingPollAttempts;
+  const settlingWindowMs = config.settlingWindowMs ?? defaultPendingRunSettlingWindowMs;
   const firstAppearanceDeadline = now() + firstAppearanceTimeoutMs;
   let pendingRuns: WorkflowRun[] = [];
 
@@ -214,9 +221,20 @@ export async function waitForPendingApprovalRuns(
     await collectRuns();
   }
 
-  for (let attempt = 0; pendingRuns.length > 0 && attempt < settlingPollAttempts; attempt += 1) {
+  let stableSince = pendingRuns.length > 0 ? now() : null;
+  let lastPendingRunSetSignature = pendingRunSetSignature(pendingRuns);
+
+  while (pendingRuns.length > 0 && now() < firstAppearanceDeadline) {
+    if (stableSince !== null && now() - stableSince >= settlingWindowMs) {
+      break;
+    }
+
     await sleep(pollIntervalMs);
+    const previousPendingRunSetSignature = lastPendingRunSetSignature;
     await collectRuns();
+
+    lastPendingRunSetSignature = pendingRunSetSignature(pendingRuns);
+    stableSince = lastPendingRunSetSignature === previousPendingRunSetSignature ? stableSince : now();
   }
 
   return pendingRuns;
