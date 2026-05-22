@@ -1884,11 +1884,6 @@ function commentDisplayLabel(comment: PreviewComment, t: TranslateFn): string {
   return comment.label || comment.elementId;
 }
 
-function commentAvatarInitial(comment: PreviewComment): string {
-  const seed = comment.label || comment.elementId || '?';
-  return seed.charAt(0).toUpperCase();
-}
-
 export function CommentSidePanel({
   comments,
   selectedIds,
@@ -1899,6 +1894,7 @@ export function CommentSidePanel({
   onClearSelection,
   onReply,
   onSendSelected,
+  onCreateComment,
   sending,
   t,
   composer,
@@ -1912,14 +1908,22 @@ export function CommentSidePanel({
   onClearSelection: () => void;
   onReply: (comment: PreviewComment) => void;
   onSendSelected: () => void | Promise<void>;
+  onCreateComment?: (note: string) => boolean | Promise<boolean>;
   sending: boolean;
   t: TranslateFn;
   composer?: ReactNode;
 }) {
+  const [newCommentDraft, setNewCommentDraft] = useState('');
   const sorted = [...comments].sort((a, b) => b.createdAt - a.createdAt);
   const visibleSelectedIds = new Set(comments.filter((comment) => selectedIds.has(comment.id)).map((comment) => comment.id));
   const selectedCount = visibleSelectedIds.size;
   const commentsLabel = t('chat.tabComments');
+  const canCreateComment = Boolean(onCreateComment) && newCommentDraft.trim().length > 0 && !sending;
+  const submitNewComment = async () => {
+    if (!onCreateComment || !newCommentDraft.trim()) return;
+    const saved = await onCreateComment(newCommentDraft.trim());
+    if (saved) setNewCommentDraft('');
+  };
   if (collapsed) {
     return (
       <button
@@ -1969,9 +1973,6 @@ export function CommentSidePanel({
             >
               <div className="comment-side-item-head">
                 <span className="comment-side-author">
-                  <span className="comment-side-avatar" aria-hidden>
-                    {commentAvatarInitial(comment)}
-                  </span>
                   <strong>{commentDisplayLabel(comment, t)}</strong>
                 </span>
                 <span className="comment-side-time">{formatCommentTime(comment.createdAt, t)}</span>
@@ -1998,7 +1999,6 @@ export function CommentSidePanel({
           );
         })}
       </div>
-      {composer ? <div className="comment-side-composer">{composer}</div> : null}
       {selectedCount > 0 ? (
         <div className="comment-side-selectbar" data-testid="comment-side-selectbar">
           <span className="comment-side-selectcount">{t('chat.comments.nSelected', { n: selectedCount })}</span>
@@ -2015,6 +2015,48 @@ export function CommentSidePanel({
             {sending ? t('chat.comments.sending') : t('chat.comments.sendToChat')}
           </button>
         </div>
+      ) : null}
+      {composer ? <div className="comment-side-composer">{composer}</div> : null}
+      {onCreateComment ? (
+        <form
+          className="comment-side-new-comment"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitNewComment();
+          }}
+        >
+          <textarea
+            value={newCommentDraft}
+            placeholder={t('chat.comments.placeholder')}
+            aria-label={t('chat.comments.placeholder')}
+            onChange={(event) => setNewCommentDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                void submitNewComment();
+              }
+            }}
+          />
+          <div className="comment-side-new-comment-actions">
+            <button
+              type="button"
+              className="comment-side-attach"
+              title={t('chat.attachTitle')}
+              aria-label={t('chat.attachAria')}
+              disabled
+            >
+              <Icon name="attach" size={14} />
+            </button>
+            <button
+              type="submit"
+              className="comment-side-new-comment-send"
+              disabled={!canCreateComment}
+            >
+              <Icon name="arrow-up" size={13} />
+              <span>{sending ? t('chat.comments.sending') : t('chat.send')}</span>
+            </button>
+          </div>
+        </form>
       ) : null}
     </aside>
   );
@@ -5601,6 +5643,36 @@ function HtmlViewer({
     }
   }
 
+  async function savePanelComment(note: string) {
+    if (!onSavePreviewComment) return false;
+    const cleanNote = note.trim();
+    if (!cleanNote) return false;
+    const idSeed = Date.now().toString(36);
+    const target: PreviewCommentTarget = activeCommentTarget
+      ? targetFromSnapshot(activeCommentTarget)
+      : {
+          filePath: file.name,
+          elementId: `file-comment-${idSeed}-${Math.floor(Math.random() * 1e6).toString(36)}`,
+          selector: 'html',
+          label: file.name,
+          text: '',
+          position: { x: 0, y: 0, width: 0, height: 0 },
+          htmlHint: '',
+          selectionKind: 'element',
+        };
+    setSendingBoardBatch(true);
+    try {
+      const saved = await onSavePreviewComment(target, cleanNote, false);
+      if (saved) {
+        setCommentSavedToast(t('chat.comments.savedToast'));
+        if (activeCommentTarget) clearBoardComposer();
+      }
+      return Boolean(saved);
+    } finally {
+      setSendingBoardBatch(false);
+    }
+  }
+
   const showPresent = source !== null;
   const canShare = source !== null;
   const exportTitle = file.name.replace(/\.html?$/i, '') || file.name;
@@ -5809,15 +5881,6 @@ function HtmlViewer({
       docked={Boolean(commentPortalHost)}
     />
   ) : null;
-  const emptyCommentComposer = boardMode && commentPortalHost && !activeCommentTarget ? (
-    <div className="comment-popover comment-popover-docked comment-popover-placeholder">
-      <textarea
-        disabled
-        placeholder={t('chat.comments.placeholder')}
-        aria-label={t('chat.comments.placeholder')}
-      />
-    </div>
-  ) : null;
   const commentSidePanel = boardMode ? (
     <CommentSidePanel
       comments={visibleSideComments}
@@ -5877,9 +5940,10 @@ function HtmlViewer({
           setSendingBoardBatch(false);
         }
       }}
+      onCreateComment={savePanelComment}
       sending={sendingBoardBatch || streaming}
       t={t}
-      composer={commentPortalHost ? (commentComposer ?? emptyCommentComposer) : null}
+      composer={null}
     />
   ) : null;
 
@@ -6627,18 +6691,16 @@ function HtmlViewer({
                     className="inspect-empty-hint"
                     data-testid="inspect-empty-hint-no-targets"
                   >
-                    This artifact has no <code>data-od-id</code>{' '}
-                    annotations yet — ask the agent to add them to the
-                    sections you want to{' '}
-                    {inspectMode ? 'inspect' : 'annotate'}.
+                    {inspectMode
+                      ? '当前页面还没有可编辑的元素。'
+                      : '当前页面还没有可注释的元素。'}
                   </div>
                 ) : (
                   <div
                     className="inspect-empty-hint"
                     data-testid="inspect-empty-hint"
                   >
-                    Click any element with <code>data-od-id</code> to{' '}
-                    {inspectMode ? 'tune its style' : 'add an annotation'}.
+                    {inspectMode ? '点击画面中的元素编辑样式。' : '点击画面中的元素添加注释。'}
                   </div>
                 )}
                 <button

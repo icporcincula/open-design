@@ -12534,6 +12534,13 @@ button.connector-action.is-loading {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  transition:
+    background 160ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.comment-side-item:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border);
 }
 .comment-side-item.selected {
   background: #fff1ec;
@@ -12557,19 +12564,6 @@ button.connector-action.is-loading {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.comment-side-avatar {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #0a0a0a;
-  color: #fff;
-  font-size: 11px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  flex-shrink: 0;
 }
 .comment-side-time {
   font-size: 11px;
@@ -12657,6 +12651,74 @@ button.connector-action.is-loading {
   cursor: not-allowed;
 }
 .comment-side-selectbar .primary:hover:not(:disabled) {
+  background: #e94a2d;
+  border-color: #e94a2d;
+}
+.comment-side-new-comment {
+  flex: 0 0 auto;
+  margin: 0 12px 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-sm);
+}
+.comment-side-new-comment textarea {
+  width: 100%;
+  min-height: 92px;
+  max-height: 180px;
+  resize: vertical;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.comment-side-new-comment textarea::placeholder {
+  color: var(--text-faint);
+}
+.comment-side-new-comment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+.comment-side-attach {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+}
+.comment-side-attach:disabled {
+  opacity: 0.55;
+}
+.comment-side-new-comment-send {
+  min-width: 108px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid #ff5a3c;
+  border-radius: 10px;
+  background: #ff5a3c;
+  color: #fff;
+  font-weight: 650;
+  box-shadow: 0 8px 20px rgba(180, 78, 48, 0.22);
+}
+.comment-side-new-comment-send:disabled {
+  background: #eeb1a4;
+  border-color: #eeb1a4;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.comment-side-new-comment-send:hover:not(:disabled) {
   background: #e94a2d;
   border-color: #e94a2d;
 }
