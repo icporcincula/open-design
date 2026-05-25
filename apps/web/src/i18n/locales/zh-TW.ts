@@ -16,6 +16,7 @@ export const zhTW: Dict = {
   'workingDirPicker.replace': "清空並替換目錄…",
   'workingDirPicker.recent': "最近使用的目錄",
   'handoff.toTarget': '交付給 {target}',
+  'handoff.openInTarget': '在 {target} 中開啟',
   'handoff.action': '交付',
   'handoff.fallbackTitle': '未找到編輯器 - 使用 {target} 開啟',
   'handoff.chooseTargetAria': '選擇交付目標',

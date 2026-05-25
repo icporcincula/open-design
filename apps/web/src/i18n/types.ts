@@ -792,6 +792,7 @@ export interface Dict {
   'workingDirPicker.replace': string;
   'workingDirPicker.recent': string;
   'handoff.toTarget': string;
+  'handoff.openInTarget': string;
   'handoff.action': string;
   'handoff.fallbackTitle': string;
   'handoff.chooseTargetAria': string;

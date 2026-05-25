@@ -40,8 +40,8 @@ describe('HandoffButton i18n', () => {
     renderLocalized('en');
 
     const trigger = await screen.findByTestId('handoff-trigger');
-    expect(trigger.getAttribute('title')).toBe('Hand off to Finder');
-    expect(trigger.textContent).toContain('Hand off to Finder');
+    expect(trigger.getAttribute('title')).toBe('Open in Finder');
+    expect(trigger.textContent).toContain('Open in Finder');
   });
 
   it('localizes the unavailable editor section', async () => {

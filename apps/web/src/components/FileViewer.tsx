@@ -6272,9 +6272,9 @@ function HtmlViewer({
                   type="button"
                   className={`viewer-action viewer-action-icon viewer-comment-toggle${boardMode && !commentCreateMode && boardTool === 'inspect' ? ' active' : ''}`}
                   data-testid="board-mode-toggle"
-                  data-tooltip={t('fileViewer.comment')}
-                  title={t('fileViewer.comment')}
-                  aria-label={t('fileViewer.comment')}
+                  data-tooltip="Inspect style"
+                  title="Inspect style"
+                  aria-label="Inspect style"
                   aria-pressed={boardMode && !commentCreateMode && boardTool === 'inspect'}
                   onClick={activateCommentTool}
                 >
@@ -6311,9 +6311,9 @@ function HtmlViewer({
                 className={`viewer-action viewer-action-icon${drawOverlayOpen ? ' active' : ''}`}
                 type="button"
                 data-testid="draw-overlay-toggle"
-                data-tooltip="Sketch on screenshot"
-                title="Sketch on screenshot"
-                aria-label="Sketch on screenshot"
+                data-tooltip="Draw"
+                title="Draw"
+                aria-label="Draw"
                 aria-pressed={drawOverlayOpen}
                 onClick={activateDrawTool}
               >
@@ -6470,12 +6470,13 @@ function HtmlViewer({
                 type="button"
                 className={`viewer-action viewer-comment-toggle${boardMode && !commentCreateMode && boardTool === 'inspect' ? ' active' : ''}`}
                 data-testid="board-mode-toggle"
-                title={t('fileViewer.comment')}
+                title="Inspect style"
+                aria-label="Inspect style"
                 aria-pressed={boardMode && !commentCreateMode && boardTool === 'inspect'}
                 onClick={activateCommentTool}
               >
                 <RemixIcon name="chat-new-line" size={14} />
-                <span>{t('fileViewer.comment')}</span>
+                <span>Inspect style</span>
               </button>
               <button
                 type="button"

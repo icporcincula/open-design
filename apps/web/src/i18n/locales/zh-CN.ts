@@ -481,6 +481,7 @@ export const zhCN: Dict = {
   'workingDirPicker.replace': '清空并替换目录…',
   'workingDirPicker.recent': '最近使用的目录',
   'handoff.toTarget': '交付给 {target}',
+  'handoff.openInTarget': '在 {target} 中打开',
   'handoff.action': '交付',
   'handoff.fallbackTitle': '未找到编辑器 - 使用 {target} 打开',
   'handoff.chooseTargetAria': '选择交付目标',
