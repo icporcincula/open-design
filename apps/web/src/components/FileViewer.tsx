@@ -6684,8 +6684,6 @@ function HtmlViewer({
               ? `manual-edit-workspace${manualEditPortalId ? ' manual-edit-workspace-portal' : ''} preview-viewport preview-viewport-${previewViewport}`
               : [
                   'comment-preview-layer',
-                  commentPanelOpen ? 'comment-preview-layer-comments-open' : '',
-                  commentPanelOpen && commentSidePanelCollapsed ? 'comment-preview-layer-comments-collapsed' : '',
                   `preview-viewport preview-viewport-${previewViewport}`,
                 ].filter(Boolean).join(' ')}
             style={previewViewportStyle(previewViewport, previewScale, previewBodySize)}
