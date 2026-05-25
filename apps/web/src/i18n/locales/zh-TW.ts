@@ -230,6 +230,7 @@ export const zhTW: Dict = {
   'settings.amrSignedIn': '已登入',
   'settings.amrNotSignedIn': '未登入',
   'settings.amrSigningIn': '登入中…',
+  'settings.amrCancelSignIn': '取消登入',
   'settings.amrAccountStatus': 'AMR 帳戶狀態',
   'settings.amrLoginErrorCompact': 'AMR 登入失敗。',
   'settings.apiSection': 'API 設定',

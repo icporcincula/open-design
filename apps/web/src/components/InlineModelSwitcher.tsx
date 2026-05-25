@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../i18n';
 import { KNOWN_PROVIDERS } from '../state/config';
 import {
+  cancelVelaLogin,
   fetchVelaLoginStatus,
   startVelaLogin,
   type VelaLoginStatus,
@@ -20,6 +21,14 @@ import type { AgentInfo, ApiProtocol, AppConfig, ExecMode } from '../types';
 import { apiProtocolLabel } from '../utils/apiProtocol';
 import { AgentIcon } from './AgentIcon';
 import { Icon } from './Icon';
+import {
+  AMR_LOGIN_STATUS_EVENT,
+  AMR_LOGIN_POLL_INTERVAL_MS,
+  AMR_LOGIN_STARTUP_SETTLE_MS,
+  amrLoginPollOutcome,
+  amrLoginStatusEventReason,
+  notifyAmrLoginStatusChanged,
+} from './amrLoginPolling';
 import { renderModelOptions } from './modelOptions';
 
 interface Props {
@@ -54,9 +63,6 @@ const API_PROTOCOL_TABS: Array<{ id: ApiProtocol; title: string }> = [
   { id: 'google', title: 'Google' },
 ];
 
-const AMR_LOGIN_POLL_INTERVAL_MS = 2000;
-const AMR_LOGIN_POLL_DURATION_MS = 5 * 60 * 1000;
-
 function displayAgentName(agent: Pick<AgentInfo, 'id' | 'name'>): string {
   return agent.id === 'amr' ? 'AMR' : agent.name;
 }
@@ -79,6 +85,7 @@ export function InlineModelSwitcher({
   const [amrLoginPending, setAmrLoginPending] = useState(false);
   const [amrLoginError, setAmrLoginError] = useState(false);
   const amrPollRef = useRef<number | null>(null);
+  const amrLoginStartedAtRef = useRef<number | null>(null);
 
   const stopAmrPolling = useCallback(() => {
     if (amrPollRef.current !== null) {
@@ -89,23 +96,46 @@ export function InlineModelSwitcher({
 
   const refreshAmrStatus = useCallback(async () => {
     const next = await fetchVelaLoginStatus();
-    if (next) setAmrStatus(next);
+    if (next) {
+      setAmrStatus(next);
+      const pendingStartup =
+        amrLoginStartedAtRef.current !== null &&
+        Date.now() - amrLoginStartedAtRef.current < AMR_LOGIN_STARTUP_SETTLE_MS;
+      if (next.loggedIn) {
+        amrLoginStartedAtRef.current = null;
+        setAmrLoginPending(false);
+      } else if (next.loginInFlight) {
+        setAmrLoginPending(true);
+      } else if (!pendingStartup) {
+        amrLoginStartedAtRef.current = null;
+        setAmrLoginPending(false);
+      }
+    }
     return next;
   }, []);
 
-  const startAmrPolling = useCallback(() => {
+  const startAmrPolling = useCallback((startedAt = Date.now()) => {
     stopAmrPolling();
-    const startedAt = Date.now();
+    amrLoginStartedAtRef.current = startedAt;
     const tick = async () => {
       const next = await refreshAmrStatus();
-      if (next?.loggedIn) {
+      const outcome = amrLoginPollOutcome(next, startedAt);
+      if (outcome === 'signed-in') {
         stopAmrPolling();
+        amrLoginStartedAtRef.current = null;
         setAmrLoginPending(false);
         return;
       }
-      if (Date.now() - startedAt > AMR_LOGIN_POLL_DURATION_MS) {
+      if (outcome === 'stopped' || outcome === 'timed-out') {
         stopAmrPolling();
+        if (outcome === 'timed-out') {
+          void cancelVelaLogin().then(() =>
+            notifyAmrLoginStatusChanged('login-canceled'),
+          );
+        }
+        amrLoginStartedAtRef.current = null;
         setAmrLoginPending(false);
+        setAmrLoginError(true);
       }
     };
     amrPollRef.current = window.setInterval(() => {
@@ -114,28 +144,46 @@ export function InlineModelSwitcher({
   }, [refreshAmrStatus, stopAmrPolling]);
 
   const handleAmrSignIn = useCallback(async () => {
+    const startedAt = Date.now();
+    amrLoginStartedAtRef.current = startedAt;
     setAmrLoginError(false);
     setAmrLoginPending(true);
     const result = await startVelaLogin();
     if (!result.ok && !result.alreadyRunning) {
+      amrLoginStartedAtRef.current = null;
       setAmrLoginPending(false);
       setAmrLoginError(true);
       return;
     }
-    startAmrPolling();
+    notifyAmrLoginStatusChanged('login-started');
+    startAmrPolling(startedAt);
   }, [startAmrPolling]);
+
+  const handleAmrCancelLogin = useCallback(async () => {
+    stopAmrPolling();
+    amrLoginStartedAtRef.current = null;
+    setAmrLoginError(false);
+    setAmrLoginPending(false);
+    await cancelVelaLogin();
+    notifyAmrLoginStatusChanged('login-canceled');
+    await refreshAmrStatus();
+  }, [refreshAmrStatus, stopAmrPolling]);
 
   const handleAgentButtonClick = useCallback(
     async (agentId: string) => {
       onAgentChange?.(agentId);
-      if (agentId !== 'amr' || amrLoginPending) return;
-      const latest = amrStatus ?? (await refreshAmrStatus());
+      if (agentId !== 'amr') return;
+      if (amrLoginPending) {
+        await handleAmrCancelLogin();
+        return;
+      }
+      const latest = await refreshAmrStatus();
       if (latest?.loggedIn) return;
       await handleAmrSignIn();
     },
     [
       amrLoginPending,
-      amrStatus,
+      handleAmrCancelLogin,
       handleAmrSignIn,
       onAgentChange,
       refreshAmrStatus,
@@ -166,6 +214,35 @@ export function InlineModelSwitcher({
     return () => stopAmrPolling();
   }, [agents, open, refreshAmrStatus, stopAmrPolling]);
 
+  useEffect(() => {
+    const onStatusChange = (event: Event) => {
+      const reason = amrLoginStatusEventReason(event);
+      if (reason === 'login-started') {
+        const startedAt = Date.now();
+        amrLoginStartedAtRef.current = startedAt;
+        setAmrLoginError(false);
+        setAmrLoginPending(true);
+        startAmrPolling(startedAt);
+      } else if (reason === 'login-canceled') {
+        amrLoginStartedAtRef.current = null;
+        stopAmrPolling();
+        setAmrLoginPending(false);
+      }
+      void refreshAmrStatus().then((next) => {
+        if (next?.loggedIn) {
+          amrLoginStartedAtRef.current = null;
+          stopAmrPolling();
+          return;
+        }
+        if (next?.loginInFlight) startAmrPolling();
+      });
+    };
+    window.addEventListener(AMR_LOGIN_STATUS_EVENT, onStatusChange);
+    return () => {
+      window.removeEventListener(AMR_LOGIN_STATUS_EVENT, onStatusChange);
+    };
+  }, [refreshAmrStatus, startAmrPolling, stopAmrPolling]);
+
   const installedAgents = useMemo(
     () => agents.filter((a) => a.available),
     [agents],
@@ -182,6 +259,12 @@ export function InlineModelSwitcher({
   const currentModelLabel =
     currentAgent?.models?.find((m) => m.id === currentModelId)?.label ?? null;
   const amrLoggedIn = amrStatus?.loggedIn === true;
+  const amrActionLabel = amrLoginPending
+    ? t('settings.amrSigningIn')
+    : amrLoggedIn
+      ? t('settings.amrSignedIn')
+      : t('settings.amrSignIn');
+  const amrPendingHoverLabel = t('settings.amrCancelSignIn');
   const amrInlineStatus = amrLoginError
     ? t('settings.amrLoginErrorCompact')
     : amrLoggedIn
@@ -189,13 +272,11 @@ export function InlineModelSwitcher({
       : amrLoginPending
         ? t('settings.amrSigningIn')
         : t('settings.amrSignIn');
-  const amrStatusIconName = amrLoginError
-    ? 'close'
-    : amrLoggedIn
+  const amrStatusIconName = amrLoggedIn
       ? 'check'
       : amrLoginPending
         ? 'spinner'
-        : 'minus';
+        : null;
 
   const apiProtocol = config.apiProtocol ?? 'anthropic';
   const providerForProtocol = useMemo(
@@ -368,7 +449,11 @@ export function InlineModelSwitcher({
                             data-testid={`inline-model-switcher-agent-${a.id}`}
                             onClick={() => void handleAgentButtonClick(a.id)}
                             title={
-                              a.version ? `${agentName} · ${a.version}` : agentName
+                              a.id === 'amr' && amrLoginPending
+                                ? amrPendingHoverLabel
+                                : a.version
+                                  ? `${agentName} · ${a.version}`
+                                  : agentName
                             }
                           >
                             <AgentIcon id={a.id} size={20} />
@@ -376,21 +461,38 @@ export function InlineModelSwitcher({
                               {agentName}
                             </span>
                             {a.id === 'amr' ? (
-                              amrStatusIconName ? (
+                              <span className="inline-switcher__agent-status">
+                                {amrStatusIconName ? (
+                                  <span
+                                    className={
+                                      'inline-switcher__agent-status-icon' +
+                                      (amrLoginPending ? ' is-pending' : '') +
+                                      (amrLoggedIn ? ' is-signed-in' : '') +
+                                      (!amrLoginPending && !amrLoggedIn ? ' is-signed-out' : '')
+                                    }
+                                  >
+                                    <Icon name={amrStatusIconName} size={13} />
+                                  </span>
+                                ) : null}
                                 <span
                                   className={
-                                    'inline-switcher__agent-status-icon' +
-                                    (amrLoginError ? ' is-error' : '') +
-                                    (amrLoginPending ? ' is-pending' : '') +
-                                    (amrLoggedIn ? ' is-signed-in' : '') +
-                                    (!amrLoginError && !amrLoginPending && !amrLoggedIn
-                                      ? ' is-signed-out'
-                                      : '')
+                                    'inline-switcher__agent-action-label' +
+                                    (amrLoginPending ? ' is-cancelable' : '')
                                   }
                                 >
-                                  <Icon name={amrStatusIconName} size={13} />
+                                  <span className="inline-switcher__agent-action-default">
+                                    {amrActionLabel}
+                                  </span>
+                                  {amrLoginPending ? (
+                                    <span
+                                      className="inline-switcher__agent-action-hover"
+                                      aria-hidden="true"
+                                    >
+                                      {amrPendingHoverLabel}
+                                    </span>
+                                  ) : null}
                                 </span>
-                              ) : null
+                              </span>
                             ) : null}
                           </button>
                         </div>

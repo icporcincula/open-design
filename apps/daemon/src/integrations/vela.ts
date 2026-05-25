@@ -23,6 +23,7 @@ export interface VelaUser {
 
 export interface VelaLoginStatus {
   loggedIn: boolean;
+  loginInFlight: boolean;
   profile: string;
   user: VelaUser | null;
   configPath: string;
@@ -66,11 +67,12 @@ export function readVelaLoginStatus(
 ): VelaLoginStatus {
   const profile = resolveAmrProfile(env);
   const configPath = velaConfigPath();
+  const loginInFlight = isVelaLoginInFlight();
   const file = readConfigFile();
   const stored = file?.profiles?.[profile];
   const runtimeKey = stored?.runtimeKey?.trim() ?? '';
   if (!runtimeKey) {
-    return { loggedIn: false, profile, user: null, configPath };
+    return { loggedIn: false, loginInFlight, profile, user: null, configPath };
   }
   const rawUser = stored?.user ?? null;
   const user: VelaUser | null = rawUser
@@ -82,7 +84,7 @@ export function readVelaLoginStatus(
         ...(typeof rawUser.plan === 'string' ? { plan: rawUser.plan } : {}),
       }
     : null;
-  return { loggedIn: true, profile, user, configPath };
+  return { loggedIn: true, loginInFlight, profile, user, configPath };
 }
 
 export function forgetVelaLogin(env: NodeJS.ProcessEnv = process.env): void {
@@ -92,8 +94,12 @@ export function forgetVelaLogin(env: NodeJS.ProcessEnv = process.env): void {
   if (!parsed?.profiles) return;
   const profile = resolveAmrProfile(env);
   if (!Object.prototype.hasOwnProperty.call(parsed.profiles, profile)) return;
+  const keptProfileConfig = { ...(parsed.profiles[profile] ?? {}) };
+  delete keptProfileConfig.controlKey;
+  delete keptProfileConfig.runtimeKey;
+  delete keptProfileConfig.user;
   const nextProfiles = { ...parsed.profiles };
-  delete nextProfiles[profile];
+  nextProfiles[profile] = keptProfileConfig;
   writeFileSync(
     file,
     JSON.stringify({ ...parsed, profiles: nextProfiles }, null, 2),
@@ -109,13 +115,49 @@ export interface SpawnedVelaLogin {
 
 const activeLoginProcs = new Map<number, ChildProcess>();
 const LOGIN_STARTUP_GRACE_MS = 250;
+const LOGIN_CANCEL_KILL_GRACE_MS = 2000;
+
+function isChildRunning(child: ChildProcess): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
 
 export function isVelaLoginInFlight(): boolean {
   for (const [pid, child] of activeLoginProcs) {
-    if (child.exitCode === null && child.signalCode === null) return true;
+    if (isChildRunning(child)) return true;
     activeLoginProcs.delete(pid);
   }
   return false;
+}
+
+export interface CancelVelaLoginResult {
+  canceled: boolean;
+  pids: number[];
+}
+
+export function cancelVelaLogin(): CancelVelaLoginResult {
+  const pids: number[] = [];
+  for (const [pid, child] of activeLoginProcs) {
+    if (!isChildRunning(child)) {
+      activeLoginProcs.delete(pid);
+      continue;
+    }
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      activeLoginProcs.delete(pid);
+      continue;
+    }
+    pids.push(pid);
+    const killTimer = setTimeout(() => {
+      try {
+        if (isChildRunning(child)) child.kill('SIGKILL');
+      } catch {
+        activeLoginProcs.delete(pid);
+      }
+    }, LOGIN_CANCEL_KILL_GRACE_MS);
+    killTimer.unref?.();
+  }
+  return { canceled: pids.length > 0, pids };
 }
 
 export interface SpawnVelaLoginDeps {

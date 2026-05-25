@@ -386,6 +386,7 @@ export interface VelaUser {
 
 export interface VelaLoginStatus {
   loggedIn: boolean;
+  loginInFlight?: boolean;
   profile: string;
   user: VelaUser | null;
   configPath: string;
@@ -394,6 +395,7 @@ export interface VelaLoginStatus {
 // AMR (vela) login surfaces three thin endpoints on the daemon:
 //   GET  /api/integrations/vela/status   — read ~/.vela/config.json projection
 //   POST /api/integrations/vela/login    — spawn `vela login` (vela opens browser itself)
+//   POST /api/integrations/vela/login/cancel — terminate a still-pending login
 //   POST /api/integrations/vela/logout   — delete ~/.vela/config.json
 // The Settings UI polls /status after kicking off /login to detect completion.
 export async function fetchVelaLoginStatus(): Promise<VelaLoginStatus | null> {
@@ -430,6 +432,17 @@ export async function startVelaLogin(): Promise<StartVelaLoginResult> {
     };
   } catch (err) {
     return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function cancelVelaLogin(): Promise<{ ok: boolean; canceled?: boolean }> {
+  try {
+    const resp = await fetch('/api/integrations/vela/login/cancel', { method: 'POST' });
+    if (!resp.ok) return { ok: false };
+    const body = (await resp.json().catch(() => null)) as { canceled?: boolean } | null;
+    return { ok: true, canceled: body?.canceled };
+  } catch {
+    return { ok: false };
   }
 }
 

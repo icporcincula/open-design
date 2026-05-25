@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react';
 import {
+  cancelVelaLogin,
   fetchVelaLoginStatus,
   startVelaLogin,
   velaLogout,
   type VelaLoginStatus,
 } from '../providers/daemon';
 import { useI18n } from '../i18n';
+import {
+  AMR_LOGIN_STATUS_EVENT,
+  AMR_LOGIN_POLL_INTERVAL_MS,
+  AMR_LOGIN_STARTUP_SETTLE_MS,
+  amrLoginPollOutcome,
+  amrLoginStatusEventReason,
+  notifyAmrLoginStatusChanged,
+} from './amrLoginPolling';
 
 interface AmrLoginPillProps {
   className?: string;
@@ -33,9 +42,6 @@ export interface AmrAccountControlProps {
   signInDisabled?: boolean;
   signOutDisabled?: boolean;
 }
-
-const POLL_INTERVAL_MS = 2000;
-const POLL_DURATION_MS = 5 * 60 * 1000;
 
 function profileBadgeLabel(profile: string | undefined): string | null {
   if (profile === 'test') return 'TEST';
@@ -139,6 +145,7 @@ export function AmrLoginPill({
   const [pending, setPending] = useState<null | 'login' | 'logout'>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
+  const loginStartedAtRef = useRef<number | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current !== null) {
@@ -158,38 +165,95 @@ export function AmrLoginPill({
     return () => stopPolling();
   }, [refresh, stopPolling]);
 
-  const startPolling = useCallback(() => {
+  const startPolling = useCallback((startedAt = Date.now()) => {
     stopPolling();
-    const startedAt = Date.now();
+    loginStartedAtRef.current = startedAt;
     const tick = async () => {
       const next = await refresh();
-      if (next?.loggedIn) {
+      const outcome = amrLoginPollOutcome(next, startedAt);
+      if (outcome === 'signed-in') {
         stopPolling();
+        loginStartedAtRef.current = null;
         setPending(null);
         return;
       }
-      if (Date.now() - startedAt > POLL_DURATION_MS) {
+      if (outcome === 'stopped' || outcome === 'timed-out') {
         stopPolling();
+        if (outcome === 'timed-out') {
+          void cancelVelaLogin().then(() =>
+            notifyAmrLoginStatusChanged('login-canceled'),
+          );
+        }
+        loginStartedAtRef.current = null;
         setPending(null);
+        setErrorMessage(t('settings.amrLoginErrorCompact'));
       }
     };
     pollRef.current = window.setInterval(() => {
       void tick();
-    }, POLL_INTERVAL_MS);
-  }, [refresh, stopPolling]);
+    }, AMR_LOGIN_POLL_INTERVAL_MS);
+  }, [refresh, stopPolling, t]);
+
+  useEffect(() => {
+    const onStatusChange = (event: Event) => {
+      const reason = amrLoginStatusEventReason(event);
+      if (reason === 'login-started') {
+        const startedAt = Date.now();
+        loginStartedAtRef.current = startedAt;
+        setErrorMessage(null);
+        setPending('login');
+        startPolling(startedAt);
+      } else if (reason === 'login-canceled') {
+        loginStartedAtRef.current = null;
+        stopPolling();
+        setPending(null);
+      }
+      void refresh().then((next) => {
+        if (!next) return;
+        if (next.loggedIn) {
+          stopPolling();
+          loginStartedAtRef.current = null;
+          setPending(null);
+          setErrorMessage(null);
+          return;
+        }
+        if (next.loginInFlight) {
+          setErrorMessage(null);
+          setPending('login');
+          startPolling();
+          return;
+        }
+        const pendingStartup =
+          loginStartedAtRef.current !== null &&
+          Date.now() - loginStartedAtRef.current < AMR_LOGIN_STARTUP_SETTLE_MS;
+        if (!pendingStartup) {
+          loginStartedAtRef.current = null;
+          setPending(null);
+        }
+      });
+    };
+    window.addEventListener(AMR_LOGIN_STATUS_EVENT, onStatusChange);
+    return () => {
+      window.removeEventListener(AMR_LOGIN_STATUS_EVENT, onStatusChange);
+    };
+  }, [refresh, startPolling, stopPolling]);
 
   const handleLogin = useCallback(
     async (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
+      const startedAt = Date.now();
+      loginStartedAtRef.current = startedAt;
       setErrorMessage(null);
       setPending('login');
       const result = await startVelaLogin();
       if (!result.ok && !result.alreadyRunning) {
+        loginStartedAtRef.current = null;
         setPending(null);
         setErrorMessage(result.error || t('settings.amrLoginErrorCompact'));
         return;
       }
-      startPolling();
+      notifyAmrLoginStatusChanged('login-started');
+      startPolling(startedAt);
     },
     [startPolling, t],
   );
@@ -200,19 +264,22 @@ export function AmrLoginPill({
       setErrorMessage(null);
       setPending('logout');
       const result = await velaLogout();
+      loginStartedAtRef.current = null;
       setPending(null);
       if (!result.ok) {
         setErrorMessage(t('settings.amrLoginErrorCompact'));
         return;
       }
       await refresh();
+      notifyAmrLoginStatusChanged('status-changed');
     },
     [refresh, t],
   );
 
   const loggedIn = status?.loggedIn === true;
   const userEmail = status?.user?.email ?? '';
-  const loginInFlight = pending === 'login';
+  const loginInFlight =
+    pending === 'login' || (status?.loggedIn !== true && status?.loginInFlight === true);
   const logoutInFlight = pending === 'logout';
   const accountStatus: AmrAccountControlStatus = errorMessage
     ? 'error'

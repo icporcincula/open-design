@@ -41,6 +41,7 @@ import {
 } from './agents.js';
 import { resolveModelForAgent } from './runtimes/models.js';
 import {
+  cancelVelaLogin,
   forgetVelaLogin,
   readVelaLoginStatus,
   spawnVelaLogin,
@@ -5613,6 +5614,14 @@ export async function startServer({
       // else (missing vela binary, spawn failure) is a 500.
       const status = /already running/i.test(message) ? 409 : 500;
       res.status(status).json({ error: message });
+    }
+  });
+
+  app.post('/api/integrations/vela/login/cancel', (_req, res) => {
+    try {
+      res.json(cancelVelaLogin());
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
     }
   });
 

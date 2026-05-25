@@ -212,6 +212,7 @@ export const zhCN: Dict = {
   'settings.amrSignedIn': '已登录',
   'settings.amrNotSignedIn': '未登录',
   'settings.amrSigningIn': '登录中…',
+  'settings.amrCancelSignIn': '取消登录',
   'settings.amrAccountStatus': 'AMR 账户状态',
   'settings.amrLoginErrorCompact': 'AMR 登录失败。',
   'settings.advanced': '高级设置',

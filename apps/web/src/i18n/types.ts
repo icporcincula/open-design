@@ -247,6 +247,7 @@ export interface Dict {
   'settings.amrSignedIn': string;
   'settings.amrNotSignedIn': string;
   'settings.amrSigningIn': string;
+  'settings.amrCancelSignIn': string;
   'settings.amrAccountStatus': string;
   'settings.amrLoginErrorCompact': string;
   'settings.apiSection': string;

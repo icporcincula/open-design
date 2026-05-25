@@ -232,6 +232,7 @@ export const uk: Dict = {
   'settings.amrSignedIn': 'Signed in',
   'settings.amrNotSignedIn': 'Not signed in',
   'settings.amrSigningIn': 'Signing in…',
+  'settings.amrCancelSignIn': 'Cancel sign-in',
   'settings.amrAccountStatus': 'AMR account status',
   'settings.amrLoginErrorCompact': 'AMR sign-in failed.',
   'settings.apiSection': 'Anthropic API',

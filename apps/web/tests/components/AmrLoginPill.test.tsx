@@ -11,7 +11,7 @@
  * device-authorization UX, so we just kick `vela login` off and wait.
  */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,6 +19,7 @@ import {
   AmrAccountControl,
   AmrLoginPill,
 } from '../../src/components/AmrLoginPill';
+import { AMR_LOGIN_TIMEOUT_MS } from '../../src/components/amrLoginPolling';
 import { I18nProvider } from '../../src/i18n';
 
 interface StubbedResponse {
@@ -154,6 +155,25 @@ describe('AmrLoginPill', () => {
     expect(screen.getByText('TEST')).toBeTruthy();
   });
 
+  it('renders daemon-reported in-flight login attempts as signing-in', async () => {
+    globalThis.fetch = vi.fn(async () =>
+      jsonResponse({
+        body: {
+          loggedIn: false,
+          loginInFlight: true,
+          profile: 'prod',
+          user: null,
+          configPath: '/x',
+        },
+      }),
+    ) as typeof fetch;
+
+    renderPill();
+
+    expect(await screen.findByText('Signing in…')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+  });
+
   it('renders a LOCAL badge next to the signed-out action for the local profile', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({
@@ -268,6 +288,66 @@ describe('AmrLoginPill', () => {
       expect(screen.getByRole('alert')).toBeTruthy();
     });
     expect(screen.getByText('AMR sign-in failed.')).toBeTruthy();
+    expect(screen.queryByText('Signing in…')).toBeNull();
+  });
+
+  it('cancels a timed-out login attempt and restores the Sign-in action', async () => {
+    let loginStarted = false;
+    const fetchMock = vi.fn(async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as URL).toString();
+      if (url.endsWith('/api/integrations/vela/status')) {
+        return jsonResponse({
+          body: {
+            loggedIn: false,
+            loginInFlight: loginStarted,
+            profile: 'prod',
+            user: null,
+            configPath: '/x',
+          },
+        });
+      }
+      if (
+        url.endsWith('/api/integrations/vela/login') &&
+        init?.method === 'POST'
+      ) {
+        loginStarted = true;
+        return jsonResponse({ status: 202, body: { pid: 4242 } });
+      }
+      if (
+        url.endsWith('/api/integrations/vela/login/cancel') &&
+        init?.method === 'POST'
+      ) {
+        loginStarted = false;
+        return jsonResponse({ body: { canceled: true, pids: [4242] } });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    renderPill();
+    const signIn = await screen.findByRole('button', { name: 'Sign in' });
+    vi.useFakeTimers();
+    fireEvent.click(signIn);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Signing in…')).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AMR_LOGIN_TIMEOUT_MS);
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).endsWith('/api/integrations/vela/login/cancel') &&
+          (init as RequestInit | undefined)?.method === 'POST',
+      ),
+    ).toBe(true);
+    expect(screen.getByText('AMR sign-in failed.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
     expect(screen.queryByText('Signing in…')).toBeNull();
   });
 

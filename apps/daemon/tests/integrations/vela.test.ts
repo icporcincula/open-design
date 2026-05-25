@@ -164,7 +164,13 @@ describe('forgetVelaLogin', () => {
     const file = writeConfig({
       version: 1,
       profiles: {
-        local: { runtimeKey: 'rt', user: { id: 'u', email: 'e' } },
+        local: {
+          runtimeKey: 'rt',
+          controlKey: 'ck',
+          apiUrl: 'http://localhost:18080',
+          linkUrl: 'http://localhost:18081',
+          user: { id: 'u', email: 'e' },
+        },
         prod: { runtimeKey: 'rt-prod', user: { id: 'p', email: 'prod@example.com' } },
       },
       otherTopLevel: true,
@@ -176,7 +182,11 @@ describe('forgetVelaLogin', () => {
 
     const next = JSON.parse(readFileSync(file, 'utf8'));
     expect(next.otherTopLevel).toBe(true);
-    expect(next.profiles.local).toBeUndefined();
+    expect(next.profiles.local.runtimeKey).toBeUndefined();
+    expect(next.profiles.local.controlKey).toBeUndefined();
+    expect(next.profiles.local.user).toBeUndefined();
+    expect(next.profiles.local.apiUrl).toBe('http://localhost:18080');
+    expect(next.profiles.local.linkUrl).toBe('http://localhost:18081');
     expect(next.profiles.prod.runtimeKey).toBe('rt-prod');
   });
 

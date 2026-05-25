@@ -124,12 +124,14 @@ describe('GET /api/integrations/vela/status', () => {
   it('reports loggedIn=false when ~/.vela/config.json is absent', async () => {
     const { status, body } = await getJson<{
       loggedIn: boolean;
+      loginInFlight: boolean;
       profile: string;
       user: { email?: string } | null;
       configPath: string;
     }>(`${baseUrl}/api/integrations/vela/status`);
     expect(status).toBe(200);
     expect(body.loggedIn).toBe(false);
+    expect(body.loginInFlight).toBe(false);
     expect(body.profile).toBe('local');
     expect(body.user).toBeNull();
     // configPath must point inside the temp HOME so the suite never leaks
@@ -252,10 +254,45 @@ describe('POST /api/integrations/vela/login', () => {
     expect(status).toBe(500);
     expect(body.error).toContain('profile "prod" api URL: is not configured');
   });
+
+  it('surfaces and cancels a delayed login subprocess', async () => {
+    process.env.FAKE_VELA_LOGIN_DELAY_MS = '30000';
+
+    const login = await postJson(`${baseUrl}/api/integrations/vela/login`);
+    expect(login.status).toBe(202);
+
+    const during = await getJson<{ loggedIn: boolean; loginInFlight: boolean }>(
+      `${baseUrl}/api/integrations/vela/status`,
+    );
+    expect(during.body.loggedIn).toBe(false);
+    expect(during.body.loginInFlight).toBe(true);
+
+    const cancel = await postJson<{ canceled: boolean; pids: number[] }>(
+      `${baseUrl}/api/integrations/vela/login/cancel`,
+    );
+    expect(cancel.status).toBe(200);
+    expect(cancel.body.canceled).toBe(true);
+    expect(cancel.body.pids.length).toBeGreaterThan(0);
+
+    for (let i = 0; i < 50; i += 1) {
+      const next = await getJson<{ loginInFlight: boolean }>(
+        `${baseUrl}/api/integrations/vela/status`,
+      );
+      if (!next.body.loginInFlight) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    const after = await getJson<{ loggedIn: boolean; loginInFlight: boolean }>(
+      `${baseUrl}/api/integrations/vela/status`,
+    );
+    expect(after.body.loggedIn).toBe(false);
+    expect(after.body.loginInFlight).toBe(false);
+    expect(existsSync(configPath())).toBe(false);
+  });
 });
 
 describe('POST /api/integrations/vela/logout', () => {
-  it('removes only the resolved profile so the next status read returns loggedIn=false', async () => {
+  it('removes only resolved profile credentials so the next login can reuse endpoint config', async () => {
     seedLogin('local');
     const cfg = JSON.parse(readFileSync(configPath(), 'utf8'));
     cfg.profiles.prod = {
@@ -272,7 +309,11 @@ describe('POST /api/integrations/vela/logout', () => {
     expect(body.ok).toBe(true);
     expect(existsSync(configPath())).toBe(true);
     const next = JSON.parse(readFileSync(configPath(), 'utf8'));
-    expect(next.profiles.local).toBeUndefined();
+    expect(next.profiles.local.runtimeKey).toBeUndefined();
+    expect(next.profiles.local.controlKey).toBeUndefined();
+    expect(next.profiles.local.user).toBeUndefined();
+    expect(next.profiles.local.apiUrl).toBe('http://localhost:18080');
+    expect(next.profiles.local.linkUrl).toBe('http://localhost:18081');
     expect(next.profiles.prod.runtimeKey).toBe('rt-prod');
 
     const after = await getJson<{ loggedIn: boolean }>(

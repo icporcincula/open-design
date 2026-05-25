@@ -97,11 +97,16 @@ import type { KnownProvider } from '../state/config';
 import { testApiProvider } from '../providers/connection-test';
 import { fetchProviderModels } from '../providers/provider-models';
 import {
+  cancelVelaLogin,
   fetchVelaLoginStatus,
   startVelaLogin,
   type VelaLoginStatus,
 } from '../providers/daemon';
 import { AmrAccountControl } from './AmrLoginPill';
+import {
+  AMR_LOGIN_POLL_INTERVAL_MS,
+  amrLoginPollOutcome,
+} from './amrLoginPolling';
 
 // The topbar chips (GitHub star, model switcher, Use everywhere)
 // collapse into the settings dropdown when the viewport gets
@@ -774,8 +779,6 @@ function OnboardingView({
 }) {
   const t = useT();
   const analytics = useAnalytics();
-  const AMR_LOGIN_POLL_INTERVAL_MS = 2000;
-  const AMR_LOGIN_POLL_DURATION_MS = 5 * 60 * 1000;
   const [step, setStep] = useState(0);
   const [runtime, setRuntime] = useState<'amr' | 'local' | 'byok' | null>(null);
   const [designSource, setDesignSource] = useState<'github' | 'upload' | 'prompt' | null>(null);
@@ -783,6 +786,7 @@ function OnboardingView({
   const [cliScanStatus, setCliScanStatus] = useState<'idle' | 'scanning' | 'done'>('idle');
   const [amrStatus, setAmrStatus] = useState<VelaLoginStatus | null>(null);
   const [amrLoginPending, setAmrLoginPending] = useState(false);
+  const [amrLoginError, setAmrLoginError] = useState(false);
   const [visibleAgentIds, setVisibleAgentIds] = useState<string[]>([]);
   const [providerTestState, setProviderTestState] = useState<
     | { status: 'idle' }
@@ -1294,6 +1298,7 @@ function OnboardingView({
   async function handleAmrSignInToContinue() {
     if (amrLoginPending) return;
     amrLoginPollCancelledRef.current = false;
+    setAmrLoginError(false);
     setAmrLoginPending(true);
     try {
       const currentStatus = await fetchVelaLoginStatus();
@@ -1303,7 +1308,10 @@ function OnboardingView({
         return;
       }
       const loginResult = await startVelaLogin();
-      if (!loginResult.ok && !loginResult.alreadyRunning) return;
+      if (!loginResult.ok && !loginResult.alreadyRunning) {
+        setAmrLoginError(true);
+        return;
+      }
       if (await pollAmrLoginCompletion()) {
         setStep((current) => current + 1);
       }
@@ -1314,17 +1322,20 @@ function OnboardingView({
 
   async function pollAmrLoginCompletion(): Promise<boolean> {
     const startedAt = Date.now();
-    while (
-      !amrLoginPollCancelledRef.current &&
-      Date.now() - startedAt <= AMR_LOGIN_POLL_DURATION_MS
-    ) {
+    while (!amrLoginPollCancelledRef.current) {
       await new Promise((resolve) =>
         window.setTimeout(resolve, AMR_LOGIN_POLL_INTERVAL_MS),
       );
       if (amrLoginPollCancelledRef.current) return false;
       const nextStatus = await fetchVelaLoginStatus();
       if (nextStatus) setAmrStatus(nextStatus);
-      if (nextStatus?.loggedIn) return true;
+      const outcome = amrLoginPollOutcome(nextStatus, startedAt);
+      if (outcome === 'signed-in') return true;
+      if (outcome === 'stopped' || outcome === 'timed-out') {
+        if (outcome === 'timed-out') void cancelVelaLogin();
+        setAmrLoginError(true);
+        return false;
+      }
     }
     return false;
   }
@@ -1558,7 +1569,9 @@ function OnboardingView({
                     {runtime === 'amr' ? (
                       <AmrAccountControl
                         status={
-                          amrSignedIn
+                          amrLoginError
+                            ? 'error'
+                            : amrSignedIn
                             ? 'signed-in'
                             : amrLoginPending
                               ? 'signing-in'

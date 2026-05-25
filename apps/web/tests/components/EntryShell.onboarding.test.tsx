@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { EntryShell } from '../../src/components/EntryShell';
+import { AMR_LOGIN_TIMEOUT_MS } from '../../src/components/amrLoginPolling';
 import { I18nProvider } from '../../src/i18n';
 import type { AgentInfo, AppConfig } from '../../src/types';
 
@@ -172,6 +173,54 @@ describe('EntryShell onboarding AMR Cloud runtime', () => {
     expect(screen.getByText('Signing in…')).toBeTruthy();
     expect(props.onCompleteOnboarding).not.toHaveBeenCalled();
     expect(screen.getByText('Connect')).toBeTruthy();
+  });
+
+  it('cancels AMR login and re-enables onboarding after the login timeout', async () => {
+    let loginStarted = false;
+    const fetchMock = vi.fn(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/api/integrations/vela/status')) {
+        return jsonResponse({
+          loggedIn: false,
+          loginInFlight: loginStarted,
+          profile: 'prod',
+          user: null,
+          configPath: '/x',
+        });
+      }
+      if (url.endsWith('/api/integrations/vela/login') && init?.method === 'POST') {
+        loginStarted = true;
+        return jsonResponse({ pid: 123 }, 202);
+      }
+      if (url.endsWith('/api/integrations/vela/login/cancel') && init?.method === 'POST') {
+        loginStarted = false;
+        return jsonResponse({ canceled: true, pids: [123] });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const props = renderOnboarding();
+
+    const signIn = await screen.findByRole('button', { name: /Sign in to continue/i });
+    vi.useFakeTimers();
+    fireEvent.click(signIn);
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/api/integrations/vela/login', { method: 'POST' });
+    expect(screen.getByText('Signing in…')).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AMR_LOGIN_TIMEOUT_MS);
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/api/integrations/vela/login/cancel', { method: 'POST' });
+    expect(screen.getByText('AMR sign-in failed.')).toBeTruthy();
+    expect(screen.queryByText('Signing in…')).toBeNull();
+    expect(screen.getByRole('button', { name: /Sign in to continue/i }).hasAttribute('disabled')).toBe(false);
+    expect(props.onCompleteOnboarding).not.toHaveBeenCalled();
   });
 
   it('continues after AMR device authorization completes during polling', async () => {
