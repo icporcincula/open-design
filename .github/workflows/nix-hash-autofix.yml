@@ -112,6 +112,7 @@ jobs:
       - name: Generate Open Design bot token
         if: ${{ steps.meta.outputs.can_autopush == 'true' && steps.bot-secrets.outputs.present == 'true' }}
         id: bot-token
+        continue-on-error: true
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
