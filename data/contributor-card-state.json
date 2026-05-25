@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-25T05:30:04.791Z",
+  "generatedAt": "2026-05-25T05:36:40.285Z",
   "contributors": {
     "1115052994": {
       "lastAnnouncedTier": "spark",
@@ -578,8 +578,8 @@
     },
     "portseif": {
       "lastAnnouncedTier": "node",
-      "lastKnownScore": 182,
-      "lastCheckedAt": "2026-05-25T05:30:04.791Z",
+      "lastKnownScore": 194,
+      "lastCheckedAt": "2026-05-25T05:36:40.285Z",
       "scoreVersion": "weighted-v1",
       "lastAnnouncedAt": "2026-05-25T03:18:29.291Z"
     },
