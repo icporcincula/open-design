@@ -2217,7 +2217,7 @@ function InspectPanel({
         <div className="inspect-section-label">Typography</div>
         <div className="inspect-row">
           <label htmlFor="ip-fs">Size</label>
-          <Input
+          <input
             id="ip-fs"
             data-testid="inspect-font-size"
             type="range"
@@ -2259,7 +2259,7 @@ function InspectPanel({
         <div className="inspect-section-label">Spacing &amp; Shape</div>
         <div className="inspect-row">
           <label htmlFor="ip-pad">Padding</label>
-          <Input
+          <input
             id="ip-pad"
             data-testid="inspect-padding"
             type="range"
@@ -2273,7 +2273,7 @@ function InspectPanel({
         </div>
         <div className="inspect-row">
           <label htmlFor="ip-rad">Radius</label>
-          <Input
+          <input
             id="ip-rad"
             data-testid="inspect-radius"
             type="range"
