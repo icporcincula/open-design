@@ -96,8 +96,8 @@
 
 <table>
 <tr>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/tree/main/skills/gamified-app"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/docs/screenshots/skills/gamified-app.png" width="380"/></a><br/><sub><a href="https://github.com/nexu-io/open-design/tree/main/skills/gamified-app"><code>gamified-app</code></a> · 游戏化移动端原型——三屏暗色舞台 + XP 进度条 + 任务卡</sub></td>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/tree/main/skills/social-carousel"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/docs/screenshots/skills/social-carousel.png" width="380"/></a><br/><sub><a href="https://github.com/nexu-io/open-design/tree/main/skills/social-carousel"><code>social-carousel</code></a> · 社交媒体三连图——1080×1080，标题串联，循环呼应</sub></td>
+<td width="50%"><a href="../../skills/gamified-app"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/docs/screenshots/skills/gamified-app.png" width="380"/></a><br/><sub><a href="../../skills/gamified-app"><code>gamified-app</code></a> · 游戏化移动端原型——三屏暗色舞台 + XP 进度条 + 任务卡</sub></td>
+<td width="50%"><a href="../../skills/social-carousel"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/docs/screenshots/skills/social-carousel.png" width="380"/></a><br/><sub><a href="../../skills/social-carousel"><code>social-carousel</code></a> · 社交媒体三连图——1080×1080，标题串联，循环呼应</sub></td>
 </tr>
 </table>
 
@@ -105,8 +105,8 @@
 
 <table>
 <tr>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/tree/main/skills/live-dashboard"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/docs/screenshots/skills/live-dashboard.png" width="380"/></a><br/><sub><b>Live Dashboard</b>——Notion 风格团队仪表盘，KPI、sparkline、活动流与任务表可按需刷新</sub></td>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/tree/main/templates/live-artifacts/otd-operations-brief"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/templates/live-artifacts/otd-operations-brief/preview.png" width="380"/></a><br/><sub><b>On-Time Delivery Dashboard</b>——供应链准时交付简报，模板、数据、预览与 provenance 完整打包</sub></td>
+<td width="50%"><a href="../../skills/live-dashboard"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/docs/screenshots/skills/live-dashboard.png" width="380"/></a><br/><sub><b>Live Dashboard</b>——Notion 风格团队仪表盘，KPI、sparkline、活动流与任务表可按需刷新</sub></td>
+<td width="50%"><a href="../../templates/live-artifacts/otd-operations-brief"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/templates/live-artifacts/otd-operations-brief/preview.png" width="380"/></a><br/><sub><b>On-Time Delivery Dashboard</b>——供应链准时交付简报，模板、数据、预览与 provenance 完整打包</sub></td>
 </tr>
 </table>
 
@@ -114,8 +114,8 @@
 
 <table>
 <tr>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/tree/main/skills/html-ppt-zhangzara-creative-mode"><img src="https://raw.githubusercontent.com/nexu-io/open-design/chore/zh-cn-readme-trim-byok-fallback/docs/screenshots/decks/zhangzara-creative-mode.png" width="380"/></a><br/><sub><b>Html Ppt Zhangzara Creative Mode</b>——高饱和创意提案 deck，纸感画布 + 多色块视觉系统</sub></td>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/tree/main/skills/html-ppt-zhangzara-cobalt-grid"><img src="https://raw.githubusercontent.com/nexu-io/open-design/chore/zh-cn-readme-trim-byok-fallback/docs/screenshots/decks/zhangzara-cobalt-grid.png" width="380"/></a><br/><sub><b>Html Ppt Zhangzara Cobalt Grid</b>——钴蓝网格 editorial deck，适合研究报告与趋势发布</sub></td>
+<td width="50%"><a href="../../skills/html-ppt-zhangzara-creative-mode"><img src="https://raw.githubusercontent.com/nexu-io/open-design/chore/zh-cn-readme-trim-byok-fallback/docs/screenshots/decks/zhangzara-creative-mode.png" width="380"/></a><br/><sub><b>Html Ppt Zhangzara Creative Mode</b>——高饱和创意提案 deck，纸感画布 + 多色块视觉系统</sub></td>
+<td width="50%"><a href="../../skills/html-ppt-zhangzara-cobalt-grid"><img src="https://raw.githubusercontent.com/nexu-io/open-design/chore/zh-cn-readme-trim-byok-fallback/docs/screenshots/decks/zhangzara-cobalt-grid.png" width="380"/></a><br/><sub><b>Html Ppt Zhangzara Cobalt Grid</b>——钴蓝网格 editorial deck，适合研究报告与趋势发布</sub></td>
 </tr>
 </table>
 
@@ -123,8 +123,8 @@
 
 <table>
 <tr>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/blob/main/prompt-templates/image/anime-martial-arts-battle-illustration.json"><img src="https://cms-assets.youmind.com/media/1776756799880_c8u8w7_HGUKjjaasAAvVRa.jpg" width="380"/></a><br/><sub><b>Anime Martial Arts Battle Illustration</b>——高冲击动漫武术对战插画，动作线与能量特效完整</sub></td>
-<td width="50%"><a href="https://github.com/nexu-io/open-design/blob/main/prompt-templates/image/e-commerce-live-stream-ui-mockup.json"><img src="https://cms-assets.youmind.com/media/1776699445498_ga2ry5_HGO7H0DWkAApdKK.jpg" width="380"/></a><br/><sub><b>E-commerce Live Stream UI Mockup</b>——直播电商界面 mockup，弹幕、礼物、商品卡完整叠加</sub></td>
+<td width="50%"><a href="../../prompt-templates/image/anime-martial-arts-battle-illustration.json"><img src="https://cms-assets.youmind.com/media/1776756799880_c8u8w7_HGUKjjaasAAvVRa.jpg" width="380"/></a><br/><sub><b>Anime Martial Arts Battle Illustration</b>——高冲击动漫武术对战插画，动作线与能量特效完整</sub></td>
+<td width="50%"><a href="../../prompt-templates/image/e-commerce-live-stream-ui-mockup.json"><img src="https://cms-assets.youmind.com/media/1776699445498_ga2ry5_HGO7H0DWkAApdKK.jpg" width="380"/></a><br/><sub><b>E-commerce Live Stream UI Mockup</b>——直播电商界面 mockup，弹幕、礼物、商品卡完整叠加</sub></td>
 </tr>
 </table>
 
@@ -134,8 +134,8 @@
 
 <table>
 <tr>
-<td width="50%"><a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.mp4"><img src="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.png" width="380"/></a><br/><sub><b>HyperFrames App Showcase</b>——12 秒三屏手机产品展示，3D 入场、功能 callout 与 logo outro 串联</sub></td>
-<td width="50%"><a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/ui-3d-reveal.mp4"><img src="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/ui-3d-reveal.png" width="380"/></a><br/><sub><b>HyperFrames Website-to-Video Pipeline</b>——15 秒网站转视频 demo，三种视口捕获后用动态转场串成营销短片</sub></td>
+<td width="50%"><a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.mp4"><img src="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.png" width="380"/></a><br/><sub><b>HyperFrames App Showcase</b>——12 秒三屏手机产品展示，3D 入场、功能 callout 与 logo outro 串联（<a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.mp4">▶ 播放</a>）</sub></td>
+<td width="50%"><a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/ui-3d-reveal.mp4"><img src="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/ui-3d-reveal.png" width="380"/></a><br/><sub><b>HyperFrames Website-to-Video Pipeline</b>——15 秒网站转视频 demo，三种视口捕获后用动态转场串成营销短片（<a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/ui-3d-reveal.mp4">▶ 播放</a>）</sub></td>
 </tr>
 </table>
 
@@ -143,8 +143,8 @@
 
 <table>
 <tr>
-<td width="50%"><a href="https://raw.githubusercontent.com/nexu-io/open-design/main/assets/prompt-templates/video/video-seedance-three-kingdoms-lyubu-yuanmen-archery.mp4"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/assets/prompt-templates/video/video-seedance-three-kingdoms-lyubu-yuanmen-archery-poster.jpg" width="380"/></a><br/><sub><b>Three Kingdoms ARPG · Lyu Bu Yuanmen Archery</b>——Seedance 2.0 游戏电影感动作片段，点击播放 MP4</sub></td>
-<td width="50%"><a href="https://github.com/YouMind-OpenLab/awesome-seedance-2-prompts/releases/download/videos/1402.mp4"><img src="https://customer-qs6wnyfuv0gcybzj.cloudflarestream.com/7f63ad253175a9ad1dac53de490efac8/thumbnails/thumbnail.jpg" width="380"/></a><br/><sub><b>Seedance 2.0 Japanese Romance Short Film</b>——15 秒日系校园纯爱电影片段，点击播放 MP4</sub></td>
+<td width="50%"><a href="../../assets/prompt-templates/video/video-seedance-three-kingdoms-lyubu-yuanmen-archery.mp4"><img src="https://raw.githubusercontent.com/nexu-io/open-design/main/assets/prompt-templates/video/video-seedance-three-kingdoms-lyubu-yuanmen-archery-poster.jpg" width="380"/></a><br/><sub><b>Three Kingdoms ARPG · Lyu Bu Yuanmen Archery</b>——Seedance 2.0 游戏电影感动作片段（<a href="https://raw.githubusercontent.com/nexu-io/open-design/main/assets/prompt-templates/video/video-seedance-three-kingdoms-lyubu-yuanmen-archery.mp4">▶ 播放</a>）</sub></td>
+<td width="50%"><a href="https://github.com/YouMind-OpenLab/awesome-seedance-2-prompts/releases/download/videos/1402.mp4"><img src="https://customer-qs6wnyfuv0gcybzj.cloudflarestream.com/7f63ad253175a9ad1dac53de490efac8/thumbnails/thumbnail.jpg" width="380"/></a><br/><sub><b>Seedance 2.0 Japanese Romance Short Film</b>——15 秒日系校园纯爱电影片段（<a href="https://github.com/YouMind-OpenLab/awesome-seedance-2-prompts/releases/download/videos/1402.mp4">▶ 播放</a>）</sub></td>
 </tr>
 </table>
 
