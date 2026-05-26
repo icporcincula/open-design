@@ -164,6 +164,8 @@ export const zhCN: Dict = {
   'settings.modeDaemonInstalledMeta': '已安装 {count} 个',
   'settings.modeApi': 'API 提供方',
   'settings.modeApiMeta': 'BYOK',
+  'settings.byokNoFileToolsNotice':
+    'BYOK 模式直接与模型对话，无法读取、写入或修改项目中的文件——代理只会以文本或 HTML 回复，不会真正落盘修改。如果需要让代理修改项目文件，请切换到本机 CLI 模式（Claude Code、Codex 等）。',
   'settings.codeAgent': '代码代理',
   'settings.codeAgentHint': '选择用来运行提示词的 CLI。',
   'settings.rescan': '↻ 重新扫描',

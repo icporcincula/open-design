@@ -82,6 +82,15 @@ export interface BundledPluginRecord {
   previewType?: string;
   /** Preview video URL when `previewType === 'video'` (Cloudflare Stream MP4). */
   previewVideo?: string;
+  /**
+   * Public URL for the runnable preview entry when the manifest
+   * carries `od.preview.entry` and `od.preview.type === 'html'`.
+   * `copy-example-html.ts` mirrors the local entry to
+   * `out/plugins/<manifest-id>/<entry-relative-path>` so this URL
+   * resolves on Cloudflare Pages without the SPA-fallback hitting
+   * the homepage.
+   */
+  previewEntryUrl?: string;
   /** Detail page URL on this site (`/plugins/<manifest-id>/`). */
   detailHref: string;
   /** GitHub source folder URL. */
@@ -108,6 +117,28 @@ interface BundledManifestRaw {
       video?: unknown;
     };
   };
+}
+
+function entryRelativeUrl(
+  manifestId: string,
+  entryRel: string | undefined,
+  slugDir: string,
+): string | undefined {
+  if (!entryRel) return undefined;
+  // Strip the leading `./` so concatenating with the detail-page URL
+  // doesn't produce `/plugins/<id>/./example.html`.
+  const clean = entryRel.replace(/^\.\//, '');
+  // Verify the manifest's promise. Several first-party manifests
+  // declare a preview entry that never made it into the repo
+  // (`example-design-brief`'s `./brief-preview.html`,
+  // `example-x-research`'s `./example.html`, …). Without this guard
+  // the detail page renders a click-to-expand iframe pointing at a
+  // file that copy-example-html.ts skipped, and Cloudflare Pages
+  // SPA-fallbacks the iframe URL to the homepage. Dropping the URL
+  // here makes the page fall back to a static thumbnail instead.
+  const localPath = path.join(slugDir, clean);
+  if (!existsSync(localPath)) return undefined;
+  return `/plugins/${manifestId}/${clean}`;
 }
 
 function asString(v: unknown): string | undefined {
@@ -202,6 +233,14 @@ function loadOne(
     previewPoster,
     previewType: asString(raw.od?.preview?.type),
     previewVideo: asString(raw.od?.preview?.video),
+    previewEntryUrl:
+      asString(raw.od?.preview?.type) === 'html'
+        ? entryRelativeUrl(
+            manifestId,
+            asString(raw.od?.preview?.entry),
+            path.join(root, bucket, slug),
+          )
+        : undefined,
     detailHref: `/plugins/${manifestId}/`,
     sourceUrl: `${REPO_FOR_BUCKET(bucket)}/${slug}`,
   };

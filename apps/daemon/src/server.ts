@@ -6962,9 +6962,37 @@ export async function startServer({
       const fsp = await import('node:fs/promises');
       const resolved = path.resolve(plugin.fsPath, relpath);
       // Final containment check — `resolved` must stay under fsPath.
-      const root = path.resolve(plugin.fsPath) + path.sep;
-      if (!(resolved + path.sep).startsWith(root) && resolved !== path.resolve(plugin.fsPath)) {
+      const root = path.resolve(plugin.fsPath);
+      const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+      if (!(resolved + path.sep).startsWith(rootWithSep) && resolved !== root) {
         return res.status(400).json({ error: 'asset escape rejected' });
+      }
+      const relativeSegments = path.relative(root, resolved).split(path.sep).filter(Boolean);
+      let current = root;
+      try {
+        const rootStat = await fsp.lstat(current);
+        if (rootStat.isSymbolicLink()) {
+          return res.status(404).json({ error: 'asset not found' });
+        }
+        for (const segment of relativeSegments) {
+          current = path.join(current, segment);
+          const stat = await fsp.lstat(current);
+          if (stat.isSymbolicLink()) {
+            return res.status(404).json({ error: 'asset not found' });
+          }
+        }
+      } catch {
+        return res.status(404).json({ error: 'asset not found' });
+      }
+      try {
+        const rootReal = await fsp.realpath(plugin.fsPath);
+        const resolvedReal = await fsp.realpath(resolved);
+        const rootRealWithSep = rootReal.endsWith(path.sep) ? rootReal : `${rootReal}${path.sep}`;
+        if (resolvedReal !== rootReal && !resolvedReal.startsWith(rootRealWithSep)) {
+          return res.status(400).json({ error: 'asset escape rejected' });
+        }
+      } catch {
+        return res.status(404).json({ error: 'asset not found' });
       }
       let buf;
       try {
@@ -12411,6 +12439,32 @@ export async function startServer({
     let server;
     try {
       server = app.listen(port, host, () => {
+        // Widen the between-request idle window so kept-alive sockets
+        // belonging to chat/SSE clients survive the gaps between bursts.
+        //
+        // Node's `keepAliveTimeout` (default 5s) only arms *after* a
+        // response finishes writing, bounding the idle gap before the next
+        // request on the same socket — it does not fire while an SSE
+        // response is still streaming. A streaming `/api/runs/:id/events`
+        // response stays open until the agent finishes, so middlebox idle
+        // timers (nginx, socat/docker bridges, EC2 SG NAT) are typically
+        // the proximate cause when an SSE stream drops; this listener-
+        // side change cannot extend a connection past those middleboxes.
+        //
+        // What it *does* fix: chat clients that pipeline multiple requests
+        // on the same TCP socket (status polls, run-status fetches, the
+        // initial GET before the SSE upgrade). With the default 5s window
+        // a sluggish client can lose the connection between two normal
+        // calls and reconnect-storm. 120s aligns with the in-band
+        // SSE_KEEPALIVE_INTERVAL_MS (25s) so kept-alive sockets used
+        // around an SSE stream stay warm across reasonable client pauses.
+        //
+        // `headersTimeout` must exceed `keepAliveTimeout` per the Node
+        // docs; otherwise a slow-loris client can stall request parsing.
+        if (server) {
+          server.keepAliveTimeout = 120_000;
+          server.headersTimeout = 125_000;
+        }
         const address = server.address();
         // `address()` can in theory return `string | AddressInfo | null`. For
         // a TCP listener it's always `AddressInfo` with a `.port` — the guard
