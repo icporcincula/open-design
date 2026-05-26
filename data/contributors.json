@@ -1,44 +1,5 @@
 {
   "generatedAt": "2026-05-26T12:49:32.630Z",
-  "totalContributors": 2,
-  "contributors": {
-    "ashleytheash": {
-      "username": "ashleytheash",
-      "avatarUrl": "https://avatars.githubusercontent.com/u/287912922?v=4",
-      "points": 0,
-      "tier": "spark",
-      "prsMerged": 0,
-      "reviews": 0,
-      "discussionsAnswered": 0,
-      "issuesAccepted": 2,
-      "streakWeeks": 0,
-      "lastActiveAt": "2026-05-26T12:49:32.630Z",
-      "founding": false,
-      "tierHistory": [
-        {
-          "tier": "spark",
-          "reachedAt": "2026-05-26T12:41:49.063Z"
-        }
-      ]
-    },
-    "ashleyashli": {
-      "username": "ashleyashli",
-      "avatarUrl": "https://avatars.githubusercontent.com/u/101024304?v=4",
-      "points": 0,
-      "tier": "spark",
-      "prsMerged": 0,
-      "reviews": 0,
-      "discussionsAnswered": 0,
-      "issuesAccepted": 1,
-      "streakWeeks": 0,
-      "lastActiveAt": "2026-05-26T12:48:53.569Z",
-      "founding": false,
-      "tierHistory": [
-        {
-          "tier": "spark",
-          "reachedAt": "2026-05-26T12:48:53.569Z"
-        }
-      ]
-    }
-  }
+  "totalContributors": 0,
+  "contributors": {}
 }
