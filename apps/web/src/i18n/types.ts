@@ -393,6 +393,7 @@ export interface Dict {
   'settings.designSystems': string;
   'settings.designSystemsHint': string;
   'settings.designSystemsInstalled': string;
+  'settings.designSystemRenameFailed': string;
   'settings.designSystemsAdd': string;
   'settings.designSystemsHiddenCount': string;
   'settings.designSystemsShowAll': string;
@@ -1502,6 +1503,7 @@ export interface Dict {
   'designs.status.succeeded': string;
   'designs.status.failed': string;
   'designs.status.canceled': string;
+  'designs.status.published': string;
   'designs.viewToggleAria': string;
   'designs.viewGrid': string;
   'designs.viewKanban': string;
@@ -1716,6 +1718,14 @@ export interface Dict {
   'chat.linkedFolderNotFound': string;
   'chat.linkedFolderAlready': string;
   'chat.linkedFolderPickError': string;
+  'chat.queuedHeader': string;
+  'chat.queuedToSend': string;
+  'chat.queuedEditQueuedTaskAria': string;
+  'chat.queuedSave': string;
+  'chat.queuedCancel': string;
+  'chat.queuedEdit': string;
+  'chat.queuedMore': string;
+  'chat.queuedFollowUpFallback': string;
   'chat.send': string;
   'chat.stop': string;
   'chat.removeAria': string;
