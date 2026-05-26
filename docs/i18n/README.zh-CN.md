@@ -132,8 +132,6 @@
 
 ### 🎬 HyperFrames · HTML 视频制作
 
-> 💡 用 HTML + CSS + JS 编程式产出营销视频、产品 demo、发布宣传片。一次 30 秒视频渲染约消耗 $100 算力——这是真正的重 workload，也是桌面客户端 + Agent 最能发挥价值的场景。
-
 <table>
 <tr>
 <td width="50%"><a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.mp4"><img src="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.png" width="100%"/></a><br/><sub><a href="https://static.heygen.ai/hyperframes-oss/docs/images/catalog/blocks/app-showcase.mp4"><b>HyperFrames App Showcase</b></a>——12 秒三屏手机产品展示，3D 入场、功能 callout 与 logo outro 串联</sub></td>
