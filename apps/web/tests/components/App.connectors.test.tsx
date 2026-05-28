@@ -34,19 +34,27 @@ vi.mock('../../src/router', () => ({
 vi.mock('../../src/components/EntryView', () => ({
   EntryView: ({
     config,
+    currentWorkspaceId,
     onOpenSettings,
+    onWorkspaceChange,
     onProjectsRefresh,
     onPersistComposioKey,
     projectsLoading,
   }: {
     config: AppConfig;
+    currentWorkspaceId: string;
     onOpenSettings: (section?: 'composio') => void;
+    onWorkspaceChange: (workspaceId: string) => Promise<void>;
     onProjectsRefresh: () => Promise<void>;
     onPersistComposioKey: (composio: AppConfig['composio']) => void;
     projectsLoading?: boolean;
   }) => (
     <div>
+      <div>Current workspace: {currentWorkspaceId}</div>
       <div>Projects loading: {projectsLoading ? 'loading' : 'idle'}</div>
+      <button type="button" onClick={() => { void onWorkspaceChange('team-ws').catch(() => {}); }}>
+        Switch team workspace
+      </button>
       <button type="button" onClick={() => { void onProjectsRefresh().catch(() => {}); }}>
         Refresh projects
       </button>
@@ -321,6 +329,67 @@ describe('App connectors settings flows', () => {
     await waitFor(() => {
       expect(screen.getByText('Projects loading: idle')).toBeTruthy();
     });
+  });
+
+  it('keeps workspace selection atomic when switch-scoped project loading fails', async () => {
+    const workspaceResponse = {
+      workspaces: [
+        {
+          id: 'local-personal',
+          name: 'Personal Workspace',
+          kind: 'local',
+          currentUserRole: 'owner',
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        {
+          id: 'team-ws',
+          name: 'Team Workspace',
+          kind: 'team',
+          currentUserRole: 'admin',
+          createdAt: 2,
+          updatedAt: 2,
+        },
+      ],
+      currentWorkspaceId: 'local-personal',
+      currentUserId: 'local-user',
+    };
+    const workspaceSwitches: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = input.toString();
+        if (url === '/api/workspaces' && (!init || init.method == null || init.method === 'GET')) {
+          return new Response(JSON.stringify(workspaceResponse), { status: 200 });
+        }
+        if (url === '/api/workspaces/current') {
+          const body = JSON.parse(String(init?.body ?? '{}')) as { workspaceId?: string };
+          workspaceSwitches.push(body.workspaceId ?? '');
+          return new Response(JSON.stringify({
+            ...workspaceResponse,
+            currentWorkspaceId: body.workspaceId ?? 'local-personal',
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+
+    render(<App />);
+
+    expect(await screen.findByText('Current workspace: local-personal')).toBeTruthy();
+
+    mockedListProjects.mockRejectedValueOnce(new Error('team projects unavailable'));
+    fireEvent.click(screen.getByRole('button', { name: 'Switch team workspace' }));
+
+    await waitFor(() => {
+      expect(mockedListProjects).toHaveBeenLastCalledWith('team-ws');
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Current workspace: local-personal')).toBeTruthy();
+      expect(screen.getByText('Projects loading: idle')).toBeTruthy();
+      expect(screen.getByText('team projects unavailable')).toBeTruthy();
+    });
+    expect(workspaceSwitches).toEqual(['team-ws', 'local-personal']);
   });
 
   it('does not show first-run privacy consent until daemon config hydration finishes', async () => {

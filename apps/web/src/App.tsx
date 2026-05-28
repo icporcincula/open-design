@@ -382,6 +382,14 @@ export function App() {
     });
   }, [activeProjectId, activeFileName]);
 
+  const fetchWorkspaceDataFor = useCallback(async (workspaceId: string) => {
+    const [nextProjects, nextTemplates] = await Promise.all([
+      listProjects(workspaceId),
+      listTemplates(workspaceId),
+    ]);
+    return { projects: nextProjects, templates: nextTemplates };
+  }, []);
+
   const loadWorkspaceDataFor = useCallback(async (
     workspaceId: string,
     isCancelled: () => boolean = () => false,
@@ -390,13 +398,10 @@ export function App() {
     workspaceDataRequestRef.current = requestId;
     setProjectsLoading(true);
     try {
-      const [nextProjects, nextTemplates] = await Promise.all([
-        listProjects(workspaceId),
-        listTemplates(workspaceId),
-      ]);
+      const workspaceData = await fetchWorkspaceDataFor(workspaceId);
       if (isCancelled() || requestId !== workspaceDataRequestRef.current) return false;
-      setProjects(nextProjects);
-      setTemplates(nextTemplates);
+      setProjects(workspaceData.projects);
+      setTemplates(workspaceData.templates);
       setProjectsLoading(false);
       return true;
     } catch (err) {
@@ -407,7 +412,7 @@ export function App() {
       }
       throw err;
     }
-  }, []);
+  }, [fetchWorkspaceDataFor]);
 
   const messageFromError = useCallback((error: unknown, fallback: string) => {
     return error instanceof Error && error.message ? error.message : fallback;
@@ -688,10 +693,7 @@ export function App() {
   const handleWorkspaceInviteAccepted = useCallback(async (result: AcceptWorkspaceInviteResponse) => {
     const requestId = workspaceSelectionRequestRef.current + 1;
     workspaceSelectionRequestRef.current = requestId;
-    const next = await listWorkspaces();
-    if (requestId !== workspaceSelectionRequestRef.current) return;
-    setWorkspaces(next.workspaces);
-    setCurrentUserId(next.currentUserId);
+    const previousWorkspaceId = currentWorkspaceIdRef.current;
     const selected = await setCurrentWorkspace(result.workspace.id);
     if (requestId !== workspaceSelectionRequestRef.current) return;
     if (!selected) {
@@ -700,11 +702,26 @@ export function App() {
     const nextWorkspaceId = selected.workspaces.some((workspace) => workspace.id === selected.currentWorkspaceId)
       ? selected.currentWorkspaceId
       : result.workspace.id;
-    setWorkspaces(selected.workspaces);
-    setCurrentUserId(selected.currentUserId);
-    setCurrentWorkspaceId(nextWorkspaceId);
-    await loadWorkspaceDataFor(nextWorkspaceId);
-  }, [loadWorkspaceDataFor]);
+    setProjectsLoading(true);
+    try {
+      const workspaceData = await fetchWorkspaceDataFor(nextWorkspaceId);
+      if (requestId !== workspaceSelectionRequestRef.current) return;
+      setWorkspaces(selected.workspaces);
+      setCurrentUserId(selected.currentUserId);
+      setCurrentWorkspaceId(nextWorkspaceId);
+      setProjects(workspaceData.projects);
+      setTemplates(workspaceData.templates);
+      setWorkspaceLoadError(null);
+      setProjectsLoading(false);
+    } catch (err) {
+      if (requestId === workspaceSelectionRequestRef.current) {
+        void setCurrentWorkspace(previousWorkspaceId);
+        setWorkspaceLoadError(messageFromError(err, 'Could not load workspace projects.'));
+        setProjectsLoading(false);
+      }
+      throw err;
+    }
+  }, [fetchWorkspaceDataFor, messageFromError]);
 
   const handleLegacyWorkspaceInviteAccepted = useCallback(async (result: AcceptWorkspaceInviteResponse) => {
     await handleWorkspaceInviteAccepted(result);
@@ -720,6 +737,7 @@ export function App() {
   const handleWorkspaceChange = useCallback(async (workspaceId: string) => {
     const requestId = workspaceSelectionRequestRef.current + 1;
     workspaceSelectionRequestRef.current = requestId;
+    const previousWorkspaceId = currentWorkspaceIdRef.current;
     const selected = await setCurrentWorkspace(workspaceId);
     if (requestId !== workspaceSelectionRequestRef.current) return;
     if (!selected) {
@@ -729,11 +747,26 @@ export function App() {
     const nextWorkspaceId = next.workspaces.some((workspace) => workspace.id === next.currentWorkspaceId)
       ? next.currentWorkspaceId
       : next.workspaces[0]?.id ?? 'local-personal';
-    setWorkspaces(next.workspaces);
-    setCurrentUserId(next.currentUserId);
-    setCurrentWorkspaceId(nextWorkspaceId);
-    await loadWorkspaceDataFor(nextWorkspaceId);
-  }, [loadWorkspaceDataFor]);
+    setProjectsLoading(true);
+    try {
+      const workspaceData = await fetchWorkspaceDataFor(nextWorkspaceId);
+      if (requestId !== workspaceSelectionRequestRef.current) return;
+      setWorkspaces(next.workspaces);
+      setCurrentUserId(next.currentUserId);
+      setCurrentWorkspaceId(nextWorkspaceId);
+      setProjects(workspaceData.projects);
+      setTemplates(workspaceData.templates);
+      setWorkspaceLoadError(null);
+      setProjectsLoading(false);
+    } catch (err) {
+      if (requestId === workspaceSelectionRequestRef.current) {
+        void setCurrentWorkspace(previousWorkspaceId);
+        setWorkspaceLoadError(messageFromError(err, 'Could not load workspace projects.'));
+        setProjectsLoading(false);
+      }
+      throw err;
+    }
+  }, [fetchWorkspaceDataFor, messageFromError]);
 
   const handleCreateWorkspaceInvite = useCallback(async (
     workspaceId: string,
