@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   windows_probe:
-    name: Probe Windows self-hosted runner
+    name: Build Windows beta candidate
     if: ${{ inputs.enable_win }}
     runs-on: [self-hosted, Windows, X64, nexu-win, release-beta]
     timeout-minutes: 15
@@ -57,4 +57,4 @@ jobs:
           echo runner_temp=%RUNNER_TEMP%
           echo runner_tool_cache=%RUNNER_TOOL_CACHE%
           powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command "if ($env:GITHUB_WORKSPACE -like 'C:\Users\runner\Projects\*') { throw 'GITHUB_WORKSPACE must not point at the operator Projects directory' }"
-          if exist "C:\.tmp\runner\od-beta\win\summary.md" type "C:\.tmp\runner\od-beta\win\summary.md" >> "%GITHUB_STEP_SUMMARY%"
+          if exist "C:\.tmp\runner\od-beta\win\summary.md" echo local_summary=C:\.tmp\runner\od-beta\win\summary.md

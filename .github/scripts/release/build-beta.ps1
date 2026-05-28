@@ -10,6 +10,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$scriptStartedAt = Get-Date
+$script:timings = @()
+$script:failureMessage = $null
 
 if ($Platform -ne "win") {
   throw "build-beta.ps1 currently supports win only"
@@ -23,6 +26,42 @@ $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
 function Require-File([string]$Path, [string]$Name) {
   if (-not (Test-Path -LiteralPath $Path)) {
     throw "$Name is required at $Path"
+  }
+}
+
+function Format-Duration([int64]$Milliseconds) {
+  if ($Milliseconds -ge 60000) {
+    return "$([Math]::Round($Milliseconds / 60000, 1))m"
+  }
+  return "$([Math]::Round($Milliseconds / 1000, 1))s"
+}
+
+function Measure-Step([string]$Name, [scriptblock]$Script) {
+  Write-Host "##[group]$Name"
+  $started = Get-Date
+  try {
+    $result = & $Script
+    $durationMs = [int64]((Get-Date) - $started).TotalMilliseconds
+    $script:timings += [ordered]@{
+      step = $Name
+      status = "success"
+      durationMs = $durationMs
+    }
+    Write-Host "[$Name] success in $(Format-Duration $durationMs)"
+    return $result
+  } catch {
+    $durationMs = [int64]((Get-Date) - $started).TotalMilliseconds
+    $script:timings += [ordered]@{
+      step = $Name
+      status = "failed"
+      durationMs = $durationMs
+      error = $_.Exception.Message
+    }
+    $script:failureMessage = $_.Exception.Message
+    Write-Host "[$Name] failed in $(Format-Duration $durationMs)"
+    throw
+  } finally {
+    Write-Host "##[endgroup]"
   }
 }
 
@@ -90,6 +129,119 @@ function Repair-ElectronDist {
   Require-File $electronExe "electron.exe"
 }
 
+function Read-BuildJson {
+  if (-not (Test-Path -LiteralPath $buildJsonPath)) {
+    return $null
+  }
+  return Get-Content -LiteralPath $buildJsonPath -Raw | ConvertFrom-Json
+}
+
+function Get-ArtifactSummary {
+  $build = Read-BuildJson
+  if ($build -eq $null) {
+    return $null
+  }
+  return [ordered]@{
+    installerPath = $build.installerPath
+    installerBytes = $build.sizeReport.installerBytes
+    latestYmlPath = $build.latestYmlPath
+    outputRoot = $build.outputRoot
+    outputRootBytes = $build.sizeReport.outputRootBytes
+    portableZipPath = $build.portableZipPath
+    portableZipBytes = $build.sizeReport.portableZipBytes
+  }
+}
+
+function Get-CacheSummary {
+  $build = Read-BuildJson
+  if ($build -eq $null -or $build.cacheReport -eq $null -or $build.cacheReport.entries -eq $null) {
+    return @()
+  }
+  return @($build.cacheReport.entries | ForEach-Object {
+    [ordered]@{
+      nodeId = $_.nodeId
+      status = $_.status
+      durationMs = $_.durationMs
+      reason = $_.reason
+    }
+  })
+}
+
+function Write-IndexAndSummary([string]$Status) {
+  $durationMs = [int64]((Get-Date) - $scriptStartedAt).TotalMilliseconds
+  $artifactSummary = Get-ArtifactSummary
+  $cacheSummary = Get-CacheSummary
+  $index = [ordered]@{
+    channel = "beta"
+    lane = $Lane
+    namespace = $Namespace
+    platform = $Platform
+    releaseVersion = $ReleaseVersion
+    status = $Status
+    failure = $script:failureMessage
+    commit = $env:GITHUB_SHA
+    branch = $env:GITHUB_REF_NAME
+    root = $Root
+    toolsPackDir = $toolsPackDir
+    cacheDir = $cacheDir
+    buildJsonPath = $buildJsonPath
+    reportDir = $env:OD_PACKAGED_E2E_REPORT_DIR
+    artifacts = $artifactSummary
+    cache = $cacheSummary
+    timings = $script:timings
+    durationMs = $durationMs
+    generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+  }
+
+  New-Item -ItemType Directory -Force -Path $indexDir | Out-Null
+  $index | ConvertTo-Json -Depth 8 | Set-Content -Path $indexPath -Encoding utf8
+
+  $summary = @(
+    "## release-beta-s",
+    "",
+    "- status: ``$Status``",
+    "- platform: ``$Platform``",
+    "- lane: ``$Lane``",
+    "- namespace: ``$Namespace``",
+    "- releaseVersion: ``$ReleaseVersion``",
+    "- duration: ``$(Format-Duration $durationMs)``",
+    "- index: ``$indexPath``",
+    "- reportDir: ``$($env:OD_PACKAGED_E2E_REPORT_DIR)``"
+  )
+
+  if ($script:failureMessage -ne $null) {
+    $summary += "- failure: ``$script:failureMessage``"
+  }
+
+  if ($artifactSummary -ne $null) {
+    $summary += ""
+    $summary += "### Artifacts"
+    $summary += "- installer: ``$($artifactSummary.installerPath)``"
+    $summary += "- portableZip: ``$($artifactSummary.portableZipPath)``"
+  }
+
+  if ($script:timings.Count -gt 0) {
+    $summary += ""
+    $summary += "### Timings"
+    foreach ($timing in $script:timings) {
+      $summary += "- $($timing.step): ``$(Format-Duration $timing.durationMs)`` $($timing.status)"
+    }
+  }
+
+  if ($cacheSummary.Count -gt 0) {
+    $summary += ""
+    $summary += "### Tools-Pack Cache"
+    foreach ($entry in $cacheSummary) {
+      $summary += "- $($entry.nodeId): ``$($entry.status)`` ``$(Format-Duration $entry.durationMs)``"
+    }
+  }
+
+  $summary | Set-Content -Path $summaryPath -Encoding utf8
+  if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
+    $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
+  }
+}
+
 if ([string]::IsNullOrWhiteSpace($Root)) {
   if ($Lane -eq "self-hosted") {
     $Root = "C:\.tmp\runner\od-beta"
@@ -110,104 +262,103 @@ $metadataOutputPath = Join-Path $platformRoot "metadata.outputs"
 
 New-Item -ItemType Directory -Force -Path $platformRoot, $toolsPackDir, $cacheDir, $reportDir, $indexDir | Out-Null
 
-Require-File $fnm "fnm"
-Require-File $cargo "cargo"
-Require-File $makensis "makensis"
-
-git --version
-git lfs version
-& $fnm exec --using=24 -- node --version
-& $fnm exec --using=24 -- pnpm.cmd --version
-& $cargo --version
-& $makensis /VERSION
-
-Invoke-Node24 -Arguments @("pnpm.cmd", "install", "--frozen-lockfile")
-Repair-ElectronDist
-
-if ([string]::IsNullOrWhiteSpace($ReleaseVersion)) {
-  git fetch --force --depth=1 origin "+refs/tags/open-design-v*:refs/tags/open-design-v*"
-
-  $previousMetadataUrl = $env:OPEN_DESIGN_BETA_METADATA_URL
-  $previousGitHubOutput = $env:GITHUB_OUTPUT
-  try {
-    $env:OPEN_DESIGN_BETA_METADATA_URL = $MetadataUrl
-    $env:GITHUB_OUTPUT = $metadataOutputPath
-    Remove-Item -LiteralPath $metadataOutputPath -Force -ErrorAction SilentlyContinue
-    Invoke-Node24 -Arguments @("node", "--experimental-strip-types", ".\scripts\release-beta.ts")
-    $metadata = Read-GitHubOutput $metadataOutputPath
-    $ReleaseVersion = [string]$metadata["beta_version"]
-  } finally {
-    $env:OPEN_DESIGN_BETA_METADATA_URL = $previousMetadataUrl
-    $env:GITHUB_OUTPUT = $previousGitHubOutput
+try {
+  Measure-Step "toolchain" {
+    Require-File $fnm "fnm"
+    Require-File $cargo "cargo"
+    Require-File $makensis "makensis"
+    git --version
+    git lfs version
+    & $fnm exec --using=24 -- node --version
+    & $fnm exec --using=24 -- pnpm.cmd --version
+    & $cargo --version
+    & $makensis /VERSION
   }
+
+  Measure-Step "pnpm install" {
+    Invoke-Node24 -Arguments @("pnpm.cmd", "install", "--frozen-lockfile", "--prefer-offline")
+  }
+
+  Measure-Step "electron dist repair" {
+    Repair-ElectronDist
+  }
+
+  if ([string]::IsNullOrWhiteSpace($ReleaseVersion)) {
+    Measure-Step "resolve beta metadata" {
+      git fetch --force --depth=1 origin "+refs/tags/open-design-v*:refs/tags/open-design-v*"
+
+      $previousMetadataUrl = $env:OPEN_DESIGN_BETA_METADATA_URL
+      $previousGitHubOutput = $env:GITHUB_OUTPUT
+      try {
+        $env:OPEN_DESIGN_BETA_METADATA_URL = $MetadataUrl
+        $env:GITHUB_OUTPUT = $metadataOutputPath
+        Remove-Item -LiteralPath $metadataOutputPath -Force -ErrorAction SilentlyContinue
+        Invoke-Node24 -Arguments @("node", "--experimental-strip-types", ".\scripts\release-beta.ts")
+        $metadata = Read-GitHubOutput $metadataOutputPath
+        $script:ReleaseVersion = [string]$metadata["beta_version"]
+      } finally {
+        $env:OPEN_DESIGN_BETA_METADATA_URL = $previousMetadataUrl
+        $env:GITHUB_OUTPUT = $previousGitHubOutput
+      }
+    }
+    $ReleaseVersion = $script:ReleaseVersion
+  }
+
+  if ([string]::IsNullOrWhiteSpace($ReleaseVersion)) {
+    throw "failed to resolve beta release version"
+  }
+
+  $outputNamespaceRoot = Join-Path $toolsPackDir "out\win\namespaces\$Namespace"
+  $runtimeNamespaceRoot = Join-Path $toolsPackDir "runtime\win\namespaces\$Namespace"
+  Measure-Step "pre-clean namespace roots" {
+    Remove-Item -LiteralPath $outputNamespaceRoot, $runtimeNamespaceRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
+
+  $buildArgs = @(
+    "pnpm.cmd", "exec", "tools-pack", "win", "build",
+    "--dir", $toolsPackDir,
+    "--cache-dir", $cacheDir,
+    "--namespace", $Namespace,
+    "--portable",
+    "--app-version", $ReleaseVersion,
+    "--to", "all",
+    "--json"
+  )
+
+  Measure-Step "tools-pack win build" {
+    $buildOutput = & $fnm exec --using=24 -- @buildArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw "tools-pack win build failed with exit code $LASTEXITCODE"
+    }
+    $buildOutput | Set-Content -Path $buildJsonPath -Encoding utf8
+  }
+
+  $env:OD_PACKAGED_E2E_BUILD_JSON_PATH = $buildJsonPath
+  $env:OD_PACKAGED_E2E_WIN = "1"
+  $env:OD_PACKAGED_E2E_WIN_VERIFY_REINSTALL = "0"
+  $env:OD_PACKAGED_E2E_NAMESPACE = $Namespace
+  $env:OD_PACKAGED_E2E_RELEASE_CHANNEL = "beta"
+  $env:OD_PACKAGED_E2E_RELEASE_VERSION = $ReleaseVersion
+  $env:OD_PACKAGED_E2E_REPORT_DIR = Join-Path $reportDir "win"
+  $env:OD_PACKAGED_E2E_TOOLS_PACK_DIR = $toolsPackDir
+
+  Measure-Step "release smoke win" {
+    Invoke-Node24 -Arguments @("pnpm.cmd", "exec", "tsx", "scripts/release-smoke.ts", "win", "specs/win.spec.ts") -WorkingDirectory (Join-Path $workspaceRoot "e2e")
+  }
+
+  Measure-Step "write index" {
+    Write-IndexAndSummary "success"
+  }
+
+  Write-Host "release-beta-s index: $indexPath"
+} catch {
+  if ($script:failureMessage -eq $null) {
+    $script:failureMessage = $_.Exception.Message
+  }
+  try {
+    Write-IndexAndSummary "failed"
+  } catch {
+    Write-Warning "failed to write release-beta-s index: $($_.Exception.Message)"
+  }
+  throw
 }
-
-if ([string]::IsNullOrWhiteSpace($ReleaseVersion)) {
-  throw "failed to resolve beta release version"
-}
-
-$outputNamespaceRoot = Join-Path $toolsPackDir "out\win\namespaces\$Namespace"
-$runtimeNamespaceRoot = Join-Path $toolsPackDir "runtime\win\namespaces\$Namespace"
-Remove-Item -LiteralPath $outputNamespaceRoot, $runtimeNamespaceRoot -Recurse -Force -ErrorAction SilentlyContinue
-
-$buildArgs = @(
-  "pnpm.cmd", "exec", "tools-pack", "win", "build",
-  "--dir", $toolsPackDir,
-  "--cache-dir", $cacheDir,
-  "--namespace", $Namespace,
-  "--portable",
-  "--app-version", $ReleaseVersion,
-  "--to", "all",
-  "--json"
-)
-
-$buildOutput = & $fnm exec --using=24 -- @buildArgs
-if ($LASTEXITCODE -ne 0) {
-  throw "tools-pack win build failed with exit code $LASTEXITCODE"
-}
-$buildOutput | Set-Content -Path $buildJsonPath -Encoding utf8
-
-$env:OD_PACKAGED_E2E_BUILD_JSON_PATH = $buildJsonPath
-$env:OD_PACKAGED_E2E_WIN = "1"
-$env:OD_PACKAGED_E2E_WIN_VERIFY_REINSTALL = "0"
-$env:OD_PACKAGED_E2E_NAMESPACE = $Namespace
-$env:OD_PACKAGED_E2E_RELEASE_CHANNEL = "beta"
-$env:OD_PACKAGED_E2E_RELEASE_VERSION = $ReleaseVersion
-$env:OD_PACKAGED_E2E_REPORT_DIR = Join-Path $reportDir "win"
-$env:OD_PACKAGED_E2E_TOOLS_PACK_DIR = $toolsPackDir
-
-Invoke-Node24 -Arguments @("pnpm.cmd", "exec", "tsx", "scripts/release-smoke.ts", "win", "specs/win.spec.ts") -WorkingDirectory (Join-Path $workspaceRoot "e2e")
-
-$index = [ordered]@{
-  channel = "beta"
-  lane = $Lane
-  namespace = $Namespace
-  platform = $Platform
-  releaseVersion = $ReleaseVersion
-  commit = $env:GITHUB_SHA
-  branch = $env:GITHUB_REF_NAME
-  toolsPackDir = $toolsPackDir
-  buildJsonPath = $buildJsonPath
-  reportDir = $env:OD_PACKAGED_E2E_REPORT_DIR
-  generatedAt = (Get-Date).ToUniversalTime().ToString("o")
-}
-
-$index | ConvertTo-Json -Depth 6 | Set-Content -Path $indexPath -Encoding utf8
-
-$summary = @(
-  "## release-beta-s",
-  "",
-  "- platform: ``$Platform``",
-  "- lane: ``$Lane``",
-  "- namespace: ``$Namespace``",
-  "- releaseVersion: ``$ReleaseVersion``",
-  "- index: ``$indexPath``",
-  "- reportDir: ``$($env:OD_PACKAGED_E2E_REPORT_DIR)``"
-)
-$summary | Set-Content -Path $summaryPath -Encoding utf8
-
-if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
-  $summary | Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8
-}
-
-Write-Host "release-beta-s index: $indexPath"
