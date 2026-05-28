@@ -1866,8 +1866,14 @@ export interface FeedbackSubmitResultProps {
   conversation_id: string | null;
   assistant_message_id: string;
   run_id: string;
-  agent_provider_id: TrackingFeedbackProviderId;
+  // `model_id` uses `modelIdForTracking` to bucket null/empty into the real
+  // `'default'` bucket (user accepted the agent's own default), so the
+  // PostHog `model_id` column never carries the analyst-hostile mix of
+  // "no selection" and "join failed" that `null/unknown` used to mean.
+  // `agent_provider_id` carries the BYOK provider when the agent maps to
+  // one, so reason × provider analyses can split CLI vs API surfaces.
   model_id: string;
+  agent_provider_id: TrackingFeedbackProviderId;
   rating: 'positive' | 'negative';
   reason?: string;
   reason_count: number;
@@ -1887,6 +1893,12 @@ interface AssistantFeedbackBase {
   // but the product funnel keys off this; we emit `null` rather than dropping
   // the field so PostHog can distinguish "no run id" from "field forgotten".
   run_id: string | null;
+  // Same rationale as `FeedbackSubmitResultProps`: carry agent/model on the
+  // event itself so reason × agent / reason × model analyses don't depend
+  // on joining back to `run_created`. Buckets via `modelIdForTracking` and
+  // `feedbackAgentProviderIdToTracking` at every emit site.
+  agent_provider_id: TrackingFeedbackProviderId;
+  model_id: string;
   rating: TrackingFeedbackRating;
 }
 
@@ -2128,22 +2140,22 @@ export function agentIdToTracking(agentId: string | null | undefined): TrackingC
 
 export function feedbackAgentProviderIdToTracking(
   agentId: string | null | undefined,
-): TrackingFeedbackProviderId | null {
+): TrackingFeedbackProviderId {
   switch (agentId) {
     case 'anthropic-api':
-      return byokProtocolToTracking('anthropic');
+      return byokProtocolToTracking('anthropic') ?? 'other';
     case 'openai-api':
-      return byokProtocolToTracking('openai');
+      return byokProtocolToTracking('openai') ?? 'other';
     case 'azure-openai-api':
-      return byokProtocolToTracking('azure');
+      return byokProtocolToTracking('azure') ?? 'other';
     case 'google-gemini-api':
-      return byokProtocolToTracking('google');
+      return byokProtocolToTracking('google') ?? 'other';
     case 'ollama-cloud-api':
-      return byokProtocolToTracking('ollama');
+      return byokProtocolToTracking('ollama') ?? 'other';
     case 'senseaudio-api':
-      return byokProtocolToTracking('senseaudio');
+      return byokProtocolToTracking('senseaudio') ?? 'other';
     default:
-      return agentId ? agentIdToTracking(agentId) : null;
+      return agentIdToTracking(agentId);
   }
 }
 

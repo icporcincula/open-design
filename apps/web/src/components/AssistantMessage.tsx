@@ -647,9 +647,9 @@ export function AssistantMessage({
                 conversationId={conversationId}
                 runId={message.runId ?? null}
                 assistantMessageId={message.id}
-                producedFileCount={displayedProduced.length}
-                agentProviderId={feedbackAgentProviderIdToTracking(message.agentId) ?? 'other'}
                 modelId={modelIdForTracking(assistantFeedbackModelId(message))}
+                agentProviderId={feedbackAgentProviderIdToTracking(message.agentId)}
+                producedFileCount={displayedProduced.length}
                 hasDesignSystemContext={hasDesignSystemContext}
                 footerProps={{
                   streaming,
@@ -871,8 +871,8 @@ function AssistantFeedback({
   conversationId: string | null;
   runId: string | null;
   assistantMessageId: string;
-  agentProviderId: TrackingFeedbackProviderId;
   modelId: string;
+  agentProviderId: TrackingFeedbackProviderId;
   producedFileCount: number;
 }) {
   const t = useT();
@@ -927,6 +927,8 @@ function AssistantFeedback({
         conversation_id: conversationId,
         assistant_message_id: assistantMessageId,
         run_id: runId ?? null,
+        agent_provider_id: agentProviderId,
+        model_id: modelId,
         rating: reasonRating,
       });
     }
@@ -938,6 +940,8 @@ function AssistantFeedback({
     conversationId,
     assistantMessageId,
     runId,
+    agentProviderId,
+    modelId,
   ]);
   const toggleFeedback = (rating: ChatMessageFeedbackRating) => {
     const nextRating = selected === rating ? null : rating;
@@ -982,6 +986,8 @@ function AssistantFeedback({
         conversation_id: conversationId,
         assistant_message_id: assistantMessageId,
         run_id: runId ?? null,
+        agent_provider_id: agentProviderId,
+        model_id: modelId,
         rating: ratingAfter,
         rating_before: ratingBefore,
         has_produced_files: producedFileCount > 0,
@@ -1072,6 +1078,8 @@ function AssistantFeedback({
         conversation_id: conversationId,
         assistant_message_id: assistantMessageId,
         run_id: runId ?? null,
+        agent_provider_id: agentProviderId,
+        model_id: modelId,
         rating: reasonRating,
         reason: reasons,
         reason_count: reasons.length,

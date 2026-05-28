@@ -12706,6 +12706,9 @@ export async function startServer({
             // `design_system_generation` to match the run_created shape.
             area: isDesignSystemRun ? 'design_system_generation' : 'chat_panel',
             result,
+            // `model_id` upgrades the request-side value with the
+            // agent-reported model on terminal state; see
+            // `finishedModelId` derivation above.
             model_id: finishedModelId,
             // Incremental count of `.html` paths the run produced or
             // modified, deduped per file. Replaces the hard-coded `0`
