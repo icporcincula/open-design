@@ -58,12 +58,15 @@ if ($null -eq $win) {
   throw "published metadata is missing platforms.win"
 }
 
+$metadataLinks = if ($null -ne $metadata.storage) { $metadata.storage } else { $metadata.r2 }
+$platformLinks = if ($null -ne $win.storage) { $win.storage } else { $win.r2 }
+
 $smallUrls = @(
   [string]$resolvedMetadataUrl,
-  [string]$metadata.r2.versionMetadataUrl,
+  [string]$metadataLinks.versionMetadataUrl,
   [string]$win.feed.latestUrl,
-  [string]$win.r2.latestManifestUrl,
-  [string]$win.r2.versionManifestUrl,
+  [string]$platformLinks.latestManifestUrl,
+  [string]$platformLinks.versionManifestUrl,
   [string]$win.artifacts.installer.sha256Url
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
 

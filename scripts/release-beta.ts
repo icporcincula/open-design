@@ -97,13 +97,13 @@ function parseBetaVersion(value: string, sourceName: string): ParsedBetaVersion 
 function parseBetaMetadataJson(value: string): ParsedBetaMetadata {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(value);
+    parsed = JSON.parse(value.replace(/^\uFEFF/u, ""));
   } catch (error) {
-    fail(`R2 beta metadata.json is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    fail(`beta metadata.json is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) {
-    fail("R2 beta metadata.json must be a JSON object");
+    fail("beta metadata.json must be a JSON object");
   }
 
   const record = parsed as Record<string, unknown>;
@@ -112,23 +112,23 @@ function parseBetaMetadataJson(value: string): ParsedBetaMetadata {
   const baseVersion = readStringField(record, "baseVersion");
 
   if (betaVersion != null) {
-    const beta = parseBetaVersion(betaVersion, "R2 beta metadata.json");
+    const beta = parseBetaVersion(betaVersion, "beta metadata.json");
     if (baseVersion != null && baseVersion !== beta.baseVersion) {
-      fail(`R2 beta metadata.json baseVersion ${baseVersion} does not match betaVersion ${beta.betaVersion}`);
+      fail(`beta metadata.json baseVersion ${baseVersion} does not match betaVersion ${beta.betaVersion}`);
     }
     if (betaNumber != null && betaNumber !== beta.betaNumber) {
-      fail(`R2 beta metadata.json betaNumber ${betaNumber} does not match betaVersion ${beta.betaVersion}`);
+      fail(`beta metadata.json betaNumber ${betaNumber} does not match betaVersion ${beta.betaVersion}`);
     }
     return { ...beta, source: "metadata-json" };
   }
 
   if (baseVersion == null || betaNumber == null) {
-    fail("R2 beta metadata.json must include betaVersion or baseVersion+betaNumber");
+    fail("beta metadata.json must include betaVersion or baseVersion+betaNumber");
   }
 
   const parsedBase = parseStableVersion(baseVersion);
   if (parsedBase == null) {
-    fail(`R2 beta metadata.json baseVersion must be x.y.z; got ${baseVersion}`);
+    fail(`beta metadata.json baseVersion must be x.y.z; got ${baseVersion}`);
   }
 
   return { ...parseBetaParts(baseVersion, String(betaNumber)), source: "metadata-json" };
@@ -260,7 +260,7 @@ validateHttpsUrl(metadataUrl, "OPEN_DESIGN_BETA_METADATA_URL");
 
 let betaNumber = 1;
 let latestBeta: ParsedBetaVersion | null = null;
-let stateSource = "R2 metadata.json";
+let stateSource = "beta metadata.json";
 const latestMetadataJson = await fetchOptionalHttpsText(metadataUrl);
 if (latestMetadataJson == null) {
   // Only HTTP 404 reaches this branch; other fetch failures throw above. This
@@ -271,11 +271,11 @@ if (latestMetadataJson == null) {
     betaNumber: 0,
     betaVersion: `${packagedVersion}-beta.0`,
   };
-  stateSource = "missing R2 metadata.json fallback beta.0";
-  console.log("[release-beta] R2 beta metadata.json: not found; using beta.0 fallback");
+  stateSource = "missing beta metadata.json fallback beta.0";
+  console.log("[release-beta] beta metadata.json: not found; using beta.0 fallback");
 } else {
   latestBeta = parseBetaMetadataJson(latestMetadataJson);
-  console.log(`[release-beta] R2 beta metadata.json version: ${latestBeta.betaVersion}`);
+  console.log(`[release-beta] beta metadata.json version: ${latestBeta.betaVersion}`);
 }
 
 if (latestBeta != null) {

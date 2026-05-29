@@ -15,10 +15,10 @@ on:
         type: boolean
         default: false
       release_version:
-        description: "Local beta candidate version for no-publish self-hosted validation."
-        required: true
+        description: "Optional beta version override. Leave empty to resolve the next MinIO-backed beta version from metadata."
+        required: false
         type: string
-        default: "0.8.1-beta.0"
+        default: ""
       s3_public_origin:
         description: "Explicit anonymous-read public origin for the self-hosted S3 publish target."
         required: true
@@ -72,8 +72,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  metadata:
+    name: Prepare beta metadata
+    if: ${{ inputs.enable_win }}
+    runs-on: ubuntu-latest
+    env:
+      OPEN_DESIGN_BETA_METADATA_URL: ${{ inputs.s3_public_origin }}/beta/latest/metadata.json
+    outputs:
+      asset_version_suffix: ${{ steps.beta.outputs.asset_version_suffix }}
+      base_version: ${{ steps.beta.outputs.base_version }}
+      beta_version: ${{ steps.beta.outputs.beta_version }}
+      branch: ${{ steps.beta.outputs.branch }}
+      commit: ${{ steps.beta.outputs.commit }}
+      release_name: ${{ steps.beta.outputs.release_name }}
+      state_source: ${{ steps.beta.outputs.state_source }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Validate self-hosted beta inputs
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.enable_win }}" != "true" ]; then
+            echo "release-beta-s requires enable_win=true" >&2
+            exit 1
+          fi
+          if [ -z "${{ inputs.s3_public_origin }}" ]; then
+            echo "release-beta-s requires a non-empty s3_public_origin" >&2
+            exit 1
+          fi
+
+      - name: Prepare beta release metadata
+        id: beta
+        run: node --experimental-strip-types ./scripts/release-beta.ts
+
   build_win:
     name: Build Windows beta candidate
+    needs: metadata
     if: ${{ inputs.enable_win }}
     runs-on: [self-hosted, Windows, X64, nexu-win, release-beta]
     timeout-minutes: 15
@@ -85,14 +127,30 @@ jobs:
           fetch-depth: 1
           lfs: false
 
+      - name: Probe Windows signing capability
+        id: sign_probe
+        shell: cmd
+        run: |
+          @echo on
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .github\scripts\release\probe-win-signing.ps1 -SignMode "${{ inputs.sign_mode }}"
+
       - name: Build beta candidate
         shell: cmd
         env:
+          OD_BETA_WINDOWS_SIGNING_CERTIFICATE_FOUND: ${{ steps.sign_probe.outputs.certificate_found }}
+          OD_BETA_WINDOWS_SIGNING_ENABLED: ${{ steps.sign_probe.outputs.enabled }}
+          OD_BETA_WINDOWS_SIGNING_MODE: ${{ steps.sign_probe.outputs.mode }}
+          OD_BETA_WINDOWS_SIGNING_PROBED: ${{ steps.sign_probe.outputs.probed }}
+          OD_BETA_WINDOWS_SIGNING_REASON: ${{ steps.sign_probe.outputs.reason }}
+          OD_BETA_WINDOWS_SIGNING_REQUESTED: ${{ steps.sign_probe.outputs.requested }}
+          OD_BETA_WINDOWS_SIGNING_SIGNTOOL_FOUND: ${{ steps.sign_probe.outputs.signtool_found }}
+          OD_BETA_WINDOWS_SIGNTOOL_PATH: ${{ steps.sign_probe.outputs.signtool_path }}
+          OD_BETA_WINDOWS_SIGN_CERT_SHA1: ${{ steps.sign_probe.outputs.thumbprint }}
           OD_PACKAGED_E2E_WIN_UPDATE_METADATA_URL: ${{ inputs.update_metadata_url }}
           OD_PACKAGED_E2E_WIN_UPDATE_VERSION: ${{ inputs.update_target_version }}
         run: |
           @echo on
-          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .github\scripts\release\build-beta.ps1 -Platform win -Lane self-hosted -Namespace release-beta-win -ReleaseVersion "${{ inputs.release_version }}" -SmokeMode "${{ inputs.smoke_mode }}" -Target "${{ inputs.target }}" -SignMode "${{ inputs.sign_mode }}"
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .github\scripts\release\build-beta.ps1 -Platform win -Lane self-hosted -Namespace release-beta-win -ReleaseVersion "${{ inputs.release_version || needs.metadata.outputs.beta_version }}" -MetadataUrl "${{ inputs.s3_public_origin }}/beta/latest/metadata.json" -SmokeMode "${{ inputs.smoke_mode }}" -Target "${{ inputs.target }}" -SignMode "${{ inputs.sign_mode }}"
 
       - name: Publish beta candidate to Nexu S3
         id: publish

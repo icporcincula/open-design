@@ -33,6 +33,8 @@ $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
 $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
 $winSigningThumbprint = "8617C437D6CCE5A61758C27E684BF5CADC5AC0A7"
 
+. (Join-Path $PSScriptRoot "windows-signing.ps1")
+
 function Require-File([string]$Path, [string]$Name) {
   if (-not (Test-Path -LiteralPath $Path)) {
     throw "$Name is required at $Path"
@@ -75,10 +77,33 @@ function Measure-Step([string]$Name, [scriptblock]$Script) {
   }
 }
 
+function Quote-CmdArgument([string]$Value) {
+  if ([string]::IsNullOrEmpty($Value)) {
+    return '""'
+  }
+
+  if ($Value -notmatch '[\s"&|<>^()]') {
+    return $Value
+  }
+
+  return '"' + ($Value -replace '"', '\"') + '"'
+}
+
+function New-CmdCommandLine([string[]]$Arguments) {
+  return ($Arguments | ForEach-Object { Quote-CmdArgument $_ }) -join " "
+}
+
 function Invoke-Node24([string[]]$Arguments, [string]$WorkingDirectory = $workspaceRoot) {
   Push-Location -LiteralPath $WorkingDirectory
   try {
-    & $fnm exec --using=24 -- @Arguments
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = "Continue"
+      $commandLine = New-CmdCommandLine $Arguments
+      & $fnm exec --using=24 -- cmd.exe /d /s /c $commandLine
+    } finally {
+      $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($LASTEXITCODE -ne 0) {
       throw "fnm exec failed with exit code ${LASTEXITCODE}: $($Arguments -join ' ')"
     }
@@ -91,7 +116,14 @@ function Invoke-ToolsPackWinBuild([string[]]$Arguments) {
   $stderrPath = Join-Path $platformRoot "tools-pack-win-build.stderr.log"
   Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
 
-  $stdout = & $fnm exec --using=24 -- @Arguments 2> $stderrPath
+  $commandLine = New-CmdCommandLine $Arguments
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $stdout = & $fnm exec --using=24 -- cmd.exe /d /s /c $commandLine 2> $stderrPath
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
   $exitCode = $LASTEXITCODE
   $stderr = Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue
 
@@ -104,40 +136,6 @@ function Invoke-ToolsPackWinBuild([string[]]$Arguments) {
     stderr = $stderr
     stdoutLines = @($stdout | ForEach-Object { $_.ToString() })
   }
-}
-
-function Test-SigningBuildFailure([string]$Text) {
-  if ([string]::IsNullOrWhiteSpace($Text)) {
-    return $false
-  }
-
-  foreach ($pattern in @(
-    "SignTool Error:",
-    "signtool.exe sign",
-    "No certificates were found that met all the given criteria",
-    "OD_WIN_SIGN_CERT_SHA1"
-  )) {
-    if ($Text -match [regex]::Escape($pattern)) {
-      return $true
-    }
-  }
-
-  return $false
-}
-
-function Get-SigningFailureSummary([string]$Text) {
-  if ([string]::IsNullOrWhiteSpace($Text)) {
-    return "signed build failed without stderr output"
-  }
-
-  foreach ($line in ($Text -split "`r?`n")) {
-    $trimmed = $line.Trim()
-    if ($trimmed -match "SignTool Error:" -or $trimmed -match "No certificates were found") {
-      return $trimmed
-    }
-  }
-
-  return (($Text -split "`r?`n") | Where-Object { $_.Trim().Length -gt 0 } | Select-Object -First 1)
 }
 
 function Read-GitHubOutput([string]$Path) {
@@ -190,23 +188,6 @@ function Repair-ElectronDist {
   New-Item -ItemType Directory -Force -Path $dist | Out-Null
   tar.exe -xf $zip.FullName -C $dist
   Require-File $electronExe "electron.exe"
-}
-
-function Resolve-WindowsSigningEnabled {
-  if ($SignMode -eq "off") {
-    return $false
-  }
-  $cert = Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
-    Where-Object { $_.Thumbprint -eq $winSigningThumbprint -and $_.HasPrivateKey } |
-    Select-Object -First 1
-  if ($cert -eq $null) {
-    if ($SignMode -eq "on") {
-      throw "Windows signing certificate with private key not found: $winSigningThumbprint"
-    }
-    return $false
-  }
-  Require-File $signtool "signtool"
-  return $true
 }
 
 function Read-BuildJson {
@@ -323,7 +304,7 @@ function Write-IndexAndSummary([string]$Status) {
   $index | ConvertTo-Json -Depth 8 | Set-Content -Path $indexPath -Encoding utf8
 
   $summary = @(
-    "## release-beta-s",
+    "## beta release build",
     "",
     "- status: ``$Status``",
     "- platform: ``$Platform``",
@@ -444,14 +425,21 @@ try {
     & $makensis /VERSION
   }
 
-  Measure-Step "windows signing" {
-    $script:windowsSigningEnabled = Resolve-WindowsSigningEnabled
-    $script:requestedWindowsSigningEnabled = $script:windowsSigningEnabled
+  Measure-Step "windows signing capability" {
+    $signingProbe = Read-WindowsSigningProbeFromEnvironment
+    if ($signingProbe -eq $null) {
+      $signingProbe = Get-WindowsSigningProbe -SignMode $SignMode -Thumbprint $winSigningThumbprint -SignToolPath $signtool
+    }
+
+    $script:requestedWindowsSigningEnabled = [bool]$signingProbe.requested
+    $script:windowsSigningEnabled = [bool]$signingProbe.enabled
     if ($script:windowsSigningEnabled) {
-      $env:OD_WIN_SIGN_CERT_SHA1 = $winSigningThumbprint
-      $env:OD_WIN_SIGNTOOL_PATH = $signtool
+      $env:OD_WIN_SIGN_CERT_SHA1 = [string]$signingProbe.thumbprint
+      $env:OD_WIN_SIGNTOOL_PATH = [string]$signingProbe.signToolPath
       $env:OD_WIN_SIGN_TIMESTAMP_URL = "http://timestamp.digicert.com"
-      Write-Host "Windows signing enabled with certificate $winSigningThumbprint"
+      Write-Host "Windows signing enabled with certificate $($signingProbe.thumbprint)"
+    } elseif (-not [string]::IsNullOrWhiteSpace([string]$signingProbe.reason)) {
+      Write-Host "Windows signing disabled: $($signingProbe.reason)"
     }
   }
 
@@ -515,23 +503,6 @@ try {
   Measure-Step "tools-pack win build" {
     $buildResult = Invoke-ToolsPackWinBuild -Arguments $buildArgs
     if ($buildResult.exitCode -ne 0) {
-      $buildFailureText = @($buildResult.stderr, ($buildResult.stdoutLines -join "`n")) -join "`n"
-      $canRetryUnsigned =
-        $script:windowsSigningEnabled -and
-        $SignMode -eq "auto" -and
-        (Test-SigningBuildFailure $buildFailureText)
-
-      if ($canRetryUnsigned) {
-        $fallbackSummary = Get-SigningFailureSummary $buildFailureText
-        $script:signingFallbackReason = "signed build failed under SignMode=auto; retried unsigned because signing is non-blocking ($fallbackSummary)"
-        Write-Warning $script:signingFallbackReason
-        $script:windowsSigningEnabled = $false
-        $unsignedBuildArgs = @($buildArgs | Where-Object { $_ -ne "--signed" })
-        $buildResult = Invoke-ToolsPackWinBuild -Arguments $unsignedBuildArgs
-      }
-    }
-
-    if ($buildResult.exitCode -ne 0) {
       throw "tools-pack win build failed with exit code $($buildResult.exitCode)"
     }
     $buildResult.stdoutLines | Set-Content -Path $buildJsonPath -Encoding utf8
@@ -556,7 +527,7 @@ try {
   }
   Write-IndexAndSummary "success"
 
-  Write-Host "release-beta-s index: $indexPath"
+  Write-Host "beta build index: $indexPath"
 } catch {
   if ($script:failureMessage -eq $null) {
     $script:failureMessage = $_.Exception.Message

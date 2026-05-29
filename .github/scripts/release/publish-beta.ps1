@@ -222,7 +222,7 @@ $manifest = [ordered]@{
   label = "Windows x64"
   platform = "win"
   platformKey = "win"
-  r2 = [ordered]@{
+  storage = [ordered]@{
     latestManifestUrl = $latestManifestUrl
     latestPrefix = $latestPrefix
     publicOrigin = $publicOrigin
@@ -244,9 +244,9 @@ $manifestPath = Join-Path $manifestDir "win.json"
 $manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding utf8
 
 $stateSource = if ([string]::IsNullOrWhiteSpace($env:GITHUB_RUN_ID)) {
-  "release-beta-s local publish"
+  "beta local publish"
 } else {
-  "release-beta-s workflow_dispatch input"
+  "$($env:GITHUB_WORKFLOW) workflow_dispatch input"
 }
 $metadata = [ordered]@{
   assetVersionSuffix = $assetSuffix
@@ -261,7 +261,7 @@ $metadata = [ordered]@{
   platforms = [ordered]@{
     win = $manifest
   }
-  r2 = [ordered]@{
+  storage = [ordered]@{
     latestMetadataUrl = $latestMetadataUrl
     latestMetadataUpdated = $true
     latestPrefix = $latestPrefix
@@ -347,7 +347,7 @@ try {
     ([ordered]@{
       generatedAt = [DateTime]::UtcNow.ToString("o")
       key = $probeKey
-      purpose = "release-beta-s publish probe"
+      purpose = "beta publish probe"
     } | ConvertTo-Json) | Set-Content -Path $probePath -Encoding utf8
     Invoke-Mc @("--config-dir", $mcConfigDir, "cp", "--attr", "Content-Type=application/json;Cache-Control=no-store", $probePath, "$alias/$bucket/$probeKey")
     Invoke-Mc @("--config-dir", $mcConfigDir, "stat", "$alias/$bucket/$probeKey")
@@ -368,7 +368,7 @@ try {
   if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_STEP_SUMMARY)) {
     @(
       "",
-      "## release-beta-s publish",
+      "## beta publish",
       "",
       "- channelPrefix: ``$channel``",
       "- releaseVersion: ``$releaseVersion``",
