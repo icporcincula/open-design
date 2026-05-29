@@ -57,7 +57,7 @@ import type {
 } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-const WIN_ARCHIVE_CACHE_VERSION = 2;
+const WIN_ARCHIVE_CACHE_VERSION = 3;
 
 async function assertWebStandaloneOutput(config: ToolPackConfig): Promise<void> {
   const webRoot = join(config.workspaceRoot, "apps", "web");

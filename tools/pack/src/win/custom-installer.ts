@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 
@@ -816,6 +816,17 @@ async function buildWinNsisPayloadArchive(
   return timings;
 }
 
+async function stageWinNsisOverlayPayload(builtApp: WinBuiltAppManifest, stageRoot: string): Promise<void> {
+  await rm(stageRoot, { force: true, recursive: true });
+  await mkdir(stageRoot, { recursive: true });
+  for (const relativePath of WIN_NSIS_OVERLAY_RELATIVE_PATHS) {
+    const sourcePath = join(builtApp.unpackedRoot, ...relativePath.split("/"));
+    const targetPath = join(stageRoot, ...relativePath.split("/"));
+    await mkdir(dirname(targetPath), { recursive: true });
+    await cp(sourcePath, targetPath, { recursive: true });
+  }
+}
+
 export async function buildWinNsisBasePayload(
   paths: WinPaths,
   builtApp: WinBuiltAppManifest,
@@ -840,19 +851,41 @@ export async function buildWinNsisOverlayPayload(
   paths: WinPaths,
   builtApp: WinBuiltAppManifest,
 ): Promise<WinPackTiming[]> {
-  return buildWinNsisPayloadArchive(
-    builtApp,
-    paths.installerOverlayPayloadPath,
-    "nsis:payload-overlay-7z",
-    [
-      "a",
-      "-t7z",
-      "-mx=1",
-      "-ms=off",
-      paths.installerOverlayPayloadPath,
-      ...WIN_NSIS_OVERLAY_RELATIVE_PATHS.map((relativePath) => `.\\${normalizeArchivePath(relativePath)}`),
-    ],
-  );
+  assertWinInstallerBuildPlatform();
+  const { runExecSegment, runSegment, timings } = createWinNsisTimingHelpers();
+  const stageRoot = join(dirname(paths.installerOverlayPayloadPath), "payload-overlay-stage");
+
+  await runSegment("nsis:payload-overlay-7z:prepare", async () => {
+    await mkdir(dirname(paths.installerOverlayPayloadPath), { recursive: true });
+    await rm(paths.installerOverlayPayloadPath, { force: true });
+  });
+  const payloadSnapshotDetails: Record<string, unknown> = {};
+  await runSegment("nsis:payload-overlay-7z:input-snapshot", async () => {
+    Object.assign(payloadSnapshotDetails, await collectPathSnapshot(builtApp.unpackedRoot));
+  }, payloadSnapshotDetails);
+  try {
+    await runSegment("nsis:payload-overlay-7z:stage", async () => {
+      await stageWinNsisOverlayPayload(builtApp, stageRoot);
+    });
+    await runSegment("nsis:payload-overlay-7z", async () => {
+      await runExecSegment(
+        "nsis:payload-overlay-7z:process",
+        winResources.sevenZipExe,
+        [
+          "a",
+          "-t7z",
+          "-mx=1",
+          "-ms=off",
+          paths.installerOverlayPayloadPath,
+          ".\\*",
+        ],
+        { cwd: stageRoot, outputPath: paths.installerOverlayPayloadPath },
+      );
+    });
+  } finally {
+    await rm(stageRoot, { force: true, recursive: true });
+  }
+  return timings;
 }
 
 export async function buildCustomWinNsisInstaller(
