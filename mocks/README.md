@@ -87,6 +87,58 @@ it lists every recording's `trace_id`, `sha256`, `bytes`, `agent`,
 `outcome`, `skills`, `multi_turn`, plus histograms over the corpus.
 Tooling reads this; you don't have to.
 
+### Provenance per recording
+
+Beyond identity (`trace_id`, `sha256`), each manifest entry carries
+fixture-trust signals so consumers can decide whether the recording
+is still meaningful as the real CLIs evolve:
+
+| Field | Meaning |
+|---|---|
+| `captured_at` | ISO 8601 timestamp of the original session — populated for all 179 current entries |
+| `cli_version` | The CLI version the trace was captured against (e.g. `"claude-code 1.0.65"`) — populated only on traces the harvester writes it to, null otherwise |
+| `protocol_version` | Stream-format version (`"claude-stream-json/v1"`, `"opencode/json-event-stream"`) — populated by harvester |
+| `anonymization_version` | Which anonymizer pass scrubbed the recording — populated by harvester |
+
+For now most of these are null on the existing 179 — the harvester in
+[nexu-io/agent-pr-explore][harvester] is the next thing to teach to
+write them. Once a recording's `cli_version` falls behind the actual
+CLI by more than one minor version, treat it as a candidate for
+re-harvest.
+
+### Golden daemon-event snapshots
+
+`mocks/golden/<trace>.events.json` holds the exact event sequence the
+OD daemon emits when fed each (mock CLI → handler) pipeline. Diffed
+on every `pnpm --filter @open-design/daemon test` run by
+`apps/daemon/tests/mocks-golden.test.ts`.
+
+A parser refactor that semantically changes events (drops a field,
+renames `sessionId`, stops emitting `turn_end`) fails the diff loudly.
+After an intentional parser change, regenerate:
+
+```bash
+MOCKS_GOLDEN_UPDATE=1 pnpm --filter @open-design/daemon test mocks-golden
+git diff mocks/golden/    # eyeball the new shapes
+git add mocks/golden/ && git commit -m "mocks: refresh goldens for <parser change>"
+```
+
+Per-spawn volatile fields (currently just claude's generated
+`sessionId`) are stripped to `"<normalized>"` so the snapshot stays
+stable. See `mocks/golden/README.md` for the coverage rationale.
+
+### Real-CLI contract check
+
+The mocks catch parser regressions against the recordings; they do
+**not** catch the recordings themselves drifting away from the live
+agent CLIs. For that, `mocks/scripts/contract-check.sh` spawns a real
+CLI alongside the mock with a fixed prompt and prints a side-by-side
+event-type distribution.
+
+This is human-driven and costs real LLM tokens — run on a real-CLI
+release or before a parser refactor, not on a cron. Full doc:
+[`docs/MOCKS-CONTRACT-CHECK.md`](../docs/MOCKS-CONTRACT-CHECK.md).
+
 ---
 
 ## What gets emitted
@@ -378,11 +430,15 @@ mocks/
 │   ├── deepseek  qwen    grok
 │   ├── devin hermes kilo kimi kiro vibe
 │   └── vela                       ← 15 bash wrappers, PATH-overlay
-├── manifest.json                 ← committed: 179 entries' metadata + sha256 + R2 storage hints
+├── manifest.json                 ← committed: 179 entries' metadata + sha256 + provenance + R2 storage hints
+├── golden/                       ← committed: daemon-event regression snapshots
+│   ├── README.md
+│   └── *.events.json             ← 3 representative traces (claude/codex/opencode)
 ├── scripts/
 │   ├── smoke-test.sh             ← 21 checks; auto-fetches recordings if empty
 │   ├── fetch-recordings.sh       ← pull from R2 (parallel, sha256-verified, idempotent)
-│   ├── upload-recording.sh      ← maintainer-local: validate + wrangler put + manifest update
+│   ├── upload-recording.sh       ← maintainer-local: validate + wrangler put + manifest update
+│   ├── contract-check.sh         ← real-CLI vs mock protocol drift check (manual)
 │   └── lib/
 │       └── manifest-utils.mjs    ← shared sha256 / meta-parse / manifest-rebuild logic
 └── recordings/                   ← populated at runtime, gitignored .jsonl

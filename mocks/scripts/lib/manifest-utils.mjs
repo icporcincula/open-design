@@ -45,6 +45,15 @@ export function inspectRecording(jsonlPath) {
       ? String(meta.user_input).slice(0, 200).replace(/\s+/g, ' ').trim()
       : null,
     multi_turn: false,                    // filled in after histograms
+    // ──── Provenance (fixture-trust signals; mrcfps review #3241) ────
+    // Capture-time fields the harvester writes into the meta event.
+    // Older recordings may not have them all — null is the explicit "we
+    // don't know" so consumers can decide whether the fixture is still
+    // trustworthy as the real CLIs evolve.
+    captured_at: meta.timestamp ?? null,            // ISO 8601 of the original session
+    cli_version: meta.cli_version ?? null,          // e.g. "claude-code 1.0.65" / "codex 0.40"
+    protocol_version: meta.protocol_version ?? null,
+    anonymization_version: meta.anonymization_version ?? null,
   };
 }
 
