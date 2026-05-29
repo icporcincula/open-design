@@ -103,6 +103,15 @@ export interface WaitForAgyModelOptions {
   readFile?: (path: string) => Promise<string>;
   // Override `Date.now` for tests; production uses the wall clock.
   now?: () => number;
+  // Stops polling when fired. Production wires this to `child.once('exit')`
+  // so the watcher cancels as soon as agy exits — the lock release is
+  // then driven by the exit handler rather than the helper's return
+  // value, eliminating the slow-startup race the looper review at
+  // 263fd2fe7 flagged: if a cold agy takes >timeoutMs to read its
+  // settings.json, we'd otherwise return false, the caller would
+  // release the lock, and a concurrent run B could rewrite
+  // settings.json before A's agy actually read it.
+  abortSignal?: AbortSignal;
 }
 
 // Polls agy's `--log-file` for the line
@@ -110,8 +119,15 @@ export interface WaitForAgyModelOptions {
 // which `model_config_manager.go` emits once agy has finished reading
 // `~/.gemini/antigravity-cli/settings.json` and sent the model
 // override to the upstream backend. Returns true on observed signal,
-// false on timeout. Never throws — a missing log file is treated as
-// "not yet seen" so the polling loop keeps retrying until the deadline.
+// false on timeout OR abort. Never throws — a missing log file is
+// treated as "not yet seen" so the polling loop keeps retrying until
+// either the deadline or the abort signal fires.
+//
+// IMPORTANT: callers MUST NOT use a `false` return as a "go ahead and
+// release the settings.json lock" signal — false means "I gave up
+// polling," not "agy definitely didn't read this." Release the lock
+// only on (a) a `true` return, OR (b) child exit. See server.ts for
+// the wiring.
 export async function waitForAgyToReadModel(
   logFilePath: string,
   expectedModel: string,
@@ -122,12 +138,15 @@ export async function waitForAgyToReadModel(
   const readFile =
     options.readFile ?? ((path: string) => fsReadFile(path, 'utf8'));
   const now = options.now ?? Date.now;
+  const abortSignal = options.abortSignal;
+  if (abortSignal?.aborted) return false;
   const escaped = expectedModel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(
     `Propagating selected model override to backend: label="${escaped}"`,
   );
   const deadline = now() + timeoutMs;
   while (now() < deadline) {
+    if (abortSignal?.aborted) return false;
     try {
       const content = await readFile(logFilePath);
       if (pattern.test(content)) return true;
@@ -135,9 +154,14 @@ export async function waitForAgyToReadModel(
       // Log file may not have appeared yet; keep polling.
     }
     if (now() >= deadline) break;
-    await new Promise<void>((resolve) =>
-      setTimeout(resolve, pollIntervalMs),
-    );
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, pollIntervalMs);
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      abortSignal?.addEventListener('abort', onAbort, { once: true });
+    });
   }
   return false;
 }

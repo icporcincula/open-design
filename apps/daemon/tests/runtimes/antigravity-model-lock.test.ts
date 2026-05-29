@@ -173,4 +173,91 @@ describe('waitForAgyToReadModel', () => {
     );
     expect(result).toBe(false);
   });
+
+  // The `false` return must NOT be conflated with "agy definitely did
+  // not read the model" — looper review at 263fd2fe7 caught a release-
+  // on-timeout regression that re-opened the model-stealing race.
+  // server.ts now only releases the lock on a TRUE return; this test
+  // pins the helper's contract: "give up polling after timeoutMs and
+  // return false" without any side effect that would imply
+  // confirmation.
+  it('returns false when the propagation line never appears within timeout', async () => {
+    // Time-travelling clock: each `now()` call advances by 10ms so
+    // the polling loop's deadline check passes naturally without
+    // wall-clock sleeps. The simulated log NEVER matches.
+    let now = 0;
+    const result = await waitForAgyToReadModel(
+      '/fake/log',
+      'Gemini 3.1 Pro (High)',
+      {
+        timeoutMs: 50,
+        pollIntervalMs: 1,
+        now: () => {
+          now += 10;
+          return now;
+        },
+        readFile: async () =>
+          'I0529 boot ...\nI0529 still waiting on backend ...\n',
+      },
+    );
+    expect(result).toBe(false);
+  });
+
+  // The abort signal lets the caller (server.ts spawn pipeline) stop
+  // polling when the child process exits — without it, a still-
+  // polling watcher would leak past the run's lifetime and could be
+  // matched by a later concurrent agy run's log content, releasing
+  // the wrong lock.
+  it('returns false immediately when the abort signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const result = await waitForAgyToReadModel(
+      '/fake/log',
+      'Gemini 3.1 Pro (High)',
+      {
+        timeoutMs: 10_000,
+        pollIntervalMs: 1,
+        abortSignal: controller.signal,
+        readFile: async () => {
+          calls++;
+          return '';
+        },
+      },
+    );
+    expect(result).toBe(false);
+    // Never even entered the poll body because the helper short-
+    // circuited on the already-aborted signal.
+    expect(calls).toBe(0);
+  });
+
+  // Aborting MID-POLL must wake the helper from its setTimeout so
+  // the caller is not blocked waiting out the rest of pollIntervalMs.
+  it('wakes from setTimeout when abort signal fires during polling', async () => {
+    const controller = new AbortController();
+    // Fire the abort after the first read returns no match.
+    let calls = 0;
+    const startedAt = Date.now();
+    const result = await waitForAgyToReadModel(
+      '/fake/log',
+      'Gemini 3.1 Pro (High)',
+      {
+        timeoutMs: 10_000,
+        // Long poll interval — if the helper waited it out we'd see
+        // ~500ms elapsed in test. Abort should cut that short.
+        pollIntervalMs: 500,
+        abortSignal: controller.signal,
+        readFile: async () => {
+          calls++;
+          if (calls === 1) {
+            setTimeout(() => controller.abort(), 10);
+          }
+          return '';
+        },
+      },
+    );
+    const elapsed = Date.now() - startedAt;
+    expect(result).toBe(false);
+    expect(elapsed).toBeLessThan(450);
+  });
 });
