@@ -1,5 +1,5 @@
 // SQLite-backed persistence for projects, conversations, messages, and the
-// per-project set of open file tabs. The on-disk project folder under
+// per-project set of open workspace tabs. The on-disk project folder under
 // .od/projects/<id>/ is still the single owner of the user's actual files
 // (HTML artifacts, sketches, uploads); this database tracks the metadata
 // that used to live in localStorage.
@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import type { ProjectBrowserWorkspaceTab, ProjectTabsState } from '@open-design/contracts';
 import { migrateCritique } from './critique/persistence.js';
 import { migrateMediaTasks } from './media-tasks.js';
 import { migratePlugins } from './plugins/persistence.js';
@@ -141,6 +142,7 @@ function migrate(db: SqliteDb): void {
     CREATE TABLE IF NOT EXISTS tabs_state (
       project_id TEXT PRIMARY KEY,
       updated_at INTEGER NOT NULL,
+      state_json TEXT,
       FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 
@@ -289,6 +291,10 @@ function migrate(db: SqliteDb): void {
   }
   if (routineCols.length > 0 && !routineCols.some((c: DbRow) => c.name === 'context_json')) {
     db.exec(`ALTER TABLE routines ADD COLUMN context_json TEXT`);
+  }
+  const tabsStateCols = db.prepare(`PRAGMA table_info(tabs_state)`).all() as DbRow[];
+  if (tabsStateCols.length > 0 && !tabsStateCols.some((c: DbRow) => c.name === 'state_json')) {
+    db.exec(`ALTER TABLE tabs_state ADD COLUMN state_json TEXT`);
   }
   migrateCritique(db);
   migrateMediaTasks(db);
@@ -1583,6 +1589,51 @@ function normalizeRoutineRun(row: DbRow) {
 
 // ---------- tabs ----------
 
+function normalizeBrowserWorkspaceTab(value: unknown): ProjectBrowserWorkspaceTab | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.id !== 'string' || !record.id.trim()) return null;
+  if (typeof record.label !== 'string' || !record.label.trim()) return null;
+  const tab: ProjectBrowserWorkspaceTab = {
+    id: record.id,
+    label: record.label,
+  };
+  if (record.insertAfter === null) tab.insertAfter = null;
+  else if (typeof record.insertAfter === 'string') tab.insertAfter = record.insertAfter;
+  if (typeof record.title === 'string' && record.title.trim()) tab.title = record.title;
+  if (typeof record.url === 'string' && record.url.trim()) tab.url = record.url;
+  if (typeof record.iconUrl === 'string' && record.iconUrl.trim()) tab.iconUrl = record.iconUrl;
+  return tab;
+}
+
+function normalizeProjectTabsState(value: unknown): ProjectTabsState | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.tabs) || !record.tabs.every((tab) => typeof tab === 'string')) {
+    return null;
+  }
+  const browserTabs = Array.isArray(record.browserTabs)
+    ? record.browserTabs
+        .map(normalizeBrowserWorkspaceTab)
+        .filter((tab): tab is ProjectBrowserWorkspaceTab => Boolean(tab))
+    : [];
+  const state: ProjectTabsState = {
+    tabs: record.tabs.slice(),
+    active: typeof record.active === 'string' ? record.active : null,
+  };
+  if (browserTabs.length > 0) state.browserTabs = browserTabs;
+  return state;
+}
+
+function parseProjectTabsStateJson(value: unknown): ProjectTabsState | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    return normalizeProjectTabsState(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
 export function listTabs(db: SqliteDb, projectId: string) {
   const rows = db
     .prepare(
@@ -1591,8 +1642,15 @@ export function listTabs(db: SqliteDb, projectId: string) {
     )
     .all(projectId) as DbRow[];
   const state = db
-    .prepare(`SELECT project_id FROM tabs_state WHERE project_id = ? LIMIT 1`)
+    .prepare(`SELECT project_id, state_json AS stateJson FROM tabs_state WHERE project_id = ? LIMIT 1`)
     .get(projectId) as DbRow | undefined;
+  const savedState = parseProjectTabsStateJson(state?.stateJson);
+  if (savedState) {
+    return {
+      ...savedState,
+      hasSavedState: true,
+    };
+  }
   const active = (rows as DbRow[]).find((r: DbRow) => r.isActive) ?? null;
   return {
     tabs: (rows as DbRow[]).map((r: DbRow) => r.name),
@@ -1601,20 +1659,32 @@ export function listTabs(db: SqliteDb, projectId: string) {
   };
 }
 
-export function setTabs(db: SqliteDb, projectId: string, names: string[], activeName: string | null) {
+export function setTabs(
+  db: SqliteDb,
+  projectId: string,
+  stateOrNames: ProjectTabsState | string[],
+  activeName: string | null = null,
+) {
+  const state = normalizeProjectTabsState(
+    Array.isArray(stateOrNames)
+      ? { tabs: stateOrNames, active: activeName }
+      : stateOrNames,
+  ) ?? { tabs: [], active: null };
   const tx = db.transaction(() => {
     db.prepare(
-      `INSERT INTO tabs_state (project_id, updated_at)
-       VALUES (?, ?)
-       ON CONFLICT(project_id) DO UPDATE SET updated_at = excluded.updated_at`,
-    ).run(projectId, Date.now());
+      `INSERT INTO tabs_state (project_id, updated_at, state_json)
+       VALUES (?, ?, ?)
+       ON CONFLICT(project_id) DO UPDATE SET
+         updated_at = excluded.updated_at,
+         state_json = excluded.state_json`,
+    ).run(projectId, Date.now(), JSON.stringify(state));
     db.prepare(`DELETE FROM tabs WHERE project_id = ?`).run(projectId);
     const ins = db.prepare(
       `INSERT INTO tabs (project_id, name, position, is_active)
        VALUES (?, ?, ?, ?)`,
     );
-    names.forEach((name: string, i: number) => {
-      ins.run(projectId, name, i, name === activeName ? 1 : 0);
+    state.tabs.forEach((name: string, i: number) => {
+      ins.run(projectId, name, i, name === state.active ? 1 : 0);
     });
   });
   tx();

@@ -51,6 +51,8 @@ import type {
   ProviderModelsResponse,
   Project,
   ProjectPlatform,
+  ProjectBrowserWorkspaceTab,
+  ProjectTabsState,
   PreviewCommentMember,
   PreviewAnnotationStyle,
   PreviewCommentSelectionKind,
@@ -410,6 +412,10 @@ export type {
   ChatMessageFeedbackReasonCode,
 };
 
+export type {
+  ProjectBrowserWorkspaceTab,
+};
+
 export interface Artifact {
   identifier: string;
   artifactType?: string;
@@ -522,8 +528,4 @@ export type {
   UpdateDeployConfigRequest,
 };
 
-export interface OpenTabsState {
-  tabs: ProjectWorkspaceTabId[];
-  active: ProjectWorkspaceTabId | null;
-  hasSavedState?: boolean;
-}
+export type OpenTabsState = ProjectTabsState;

@@ -189,6 +189,22 @@ export interface ProjectTemplate {
   createdAt: number;
 }
 
+export interface ProjectBrowserWorkspaceTab {
+  id: string;
+  insertAfter?: string | null;
+  label: string;
+  title?: string;
+  url?: string;
+  iconUrl?: string;
+}
+
+export interface ProjectTabsState {
+  tabs: string[];
+  active: string | null;
+  browserTabs?: ProjectBrowserWorkspaceTab[];
+  hasSavedState?: boolean;
+}
+
 export interface Conversation {
   id: string;
   projectId: string;
