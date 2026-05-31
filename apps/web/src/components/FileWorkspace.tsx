@@ -193,6 +193,7 @@ function formatBrowserTabUrl(url: string): string {
     return url;
   }
 }
+
 interface DesignSystemProjectSectionReview {
   section: DesignSystemProjectSection;
   previewFile: ProjectFile | null;
@@ -334,33 +335,6 @@ export function FileWorkspace({
     browserTabSequenceRef.current = 0;
     setAddMenuOpen(false);
   }, [projectId]);
-
-  useEffect(() => {
-    const tabBar = tabsBarRef.current;
-    if (!tabBar) return;
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      setTabsOverflowing(tabBar.scrollWidth > tabBar.clientWidth + 1);
-    };
-    const requestMeasure = () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(measure);
-    };
-    requestMeasure();
-    const resizeObserver =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(requestMeasure);
-    if (resizeObserver) {
-      resizeObserver.observe(tabBar);
-      Array.from(tabBar.children).forEach((child) => resizeObserver.observe(child));
-    }
-    window.addEventListener('resize', requestMeasure);
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      resizeObserver?.disconnect();
-      window.removeEventListener('resize', requestMeasure);
-    };
-  }, [browserTabs.length, designSystemProject, tabNames.length]);
 
   // The add-module menu is portaled to <body> so the tab strip's overflow
   // clipping (overflow-x: auto turns .ws-tabs-bar into a scroll container that
@@ -989,6 +963,33 @@ export function FileWorkspace({
     }
     return [...persistedTabs, ...extras];
   }, [persistedTabs, sketches]);
+
+  useEffect(() => {
+    const tabBar = tabsBarRef.current;
+    if (!tabBar) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      setTabsOverflowing(tabBar.scrollWidth > tabBar.clientWidth + 1);
+    };
+    const requestMeasure = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    requestMeasure();
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(requestMeasure);
+    if (resizeObserver) {
+      resizeObserver.observe(tabBar);
+      Array.from(tabBar.children).forEach((child) => resizeObserver.observe(child));
+    }
+    window.addEventListener('resize', requestMeasure);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', requestMeasure);
+    };
+  }, [browserTabs.length, designSystemProject, tabNames.length]);
 
   const isActiveSketch = activeFile?.kind === 'sketch' && isSketchName(activeFile.name);
   const activeSketch = activeFile && isActiveSketch ? sketches[activeFile.name] : null;

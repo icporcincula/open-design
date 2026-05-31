@@ -68,14 +68,15 @@
   margin-right: calc(var(--app-chrome-traffic-margin) + 8px);
 }
 .workspace-tabs-new-btn {
-  width: 24px;
-  height: 24px;
-  margin-left: 4px;
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
+  margin-right: 0;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text-faint);
+  color: color-mix(in srgb, var(--text-muted) 72%, transparent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -92,7 +93,7 @@
 }
 .workspace-tabs-new-btn:hover {
   background: color-mix(in srgb, var(--bg-panel) 72%, var(--bg-subtle));
-  color: var(--text);
+  color: var(--text-muted);
 }
 .workspace-tabs-icon-btn {
   width: 28px;
@@ -262,7 +263,7 @@
   align-self: stretch;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: 0 0 auto;
   margin-left: 8px;
   padding-left: 4px;

@@ -217,7 +217,7 @@ export function DesignFilesPanel({
   const internalDragNamesRef = useRef<string[]>([]);
   const [hover, setHover] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ name: string; top: number; left: number } | null>(null);
-  const MENU_ESTIMATED_HEIGHT = 145;
+  const MENU_ESTIMATED_HEIGHT = 180;
   const MENU_SAFE_PADDING = 8;
   const [preview, setPreview] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -450,6 +450,10 @@ export function DesignFilesPanel({
   useEffect(() => {
     setPage(0);
   }, [kindFilter]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [normalizedSearchQuery]);
 
   // Drop any selected files that fall outside the active filter. Without
   // this, bulk delete / download would silently operate on rows the user
@@ -715,6 +719,11 @@ export function DesignFilesPanel({
     return name.slice(currentDir.length + 1);
   }
 
+  function openDirectory(path: string): void {
+    setSearchQuery('');
+    setCurrentDir(path);
+  }
+
   async function moveFilesToFolder(names: string[], folderPath: string) {
     const uniqueNames = Array.from(new Set(names));
     const failed: string[] = [];
@@ -789,6 +798,18 @@ export function DesignFilesPanel({
         key={f.name}
         data-testid={`design-file-row-${f.name}`}
         className={`df-file-row ${active ? 'active' : ''} ${selected.has(f.name) ? 'selected' : ''}`}
+        draggable={!renameState}
+        onDragStart={(e) => {
+          const names = selected.has(f.name) ? Array.from(selected) : [f.name];
+          internalDragNamesRef.current = names;
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('application/x-open-design-files', JSON.stringify(names));
+          e.dataTransfer.setData('text/plain', names.join('\n'));
+        }}
+        onDragEnd={() => {
+          internalDragNamesRef.current = [];
+          setDragOverFolder(null);
+        }}
         onMouseEnter={() => setHover(f.name)}
         onMouseLeave={() => setHover((c) => (c === f.name ? null : c))}
       >
@@ -877,7 +898,7 @@ export function DesignFilesPanel({
               }}
             >
               <span className="df-row-name-wrap">
-                <span className="df-row-name">{currentDir === '' ? f.name : f.name.slice(currentDir.length + 1)}</span>
+                <span className="df-row-name">{displayNameForFile(f.name)}</span>
                 <span className="df-row-sub">{humanBytes(f.size)}</span>
               </span>
             </button>
@@ -924,30 +945,59 @@ export function DesignFilesPanel({
     );
   }
 
-  function renderDirRow(dirName: string) {
-    const fullPath = currentDir === '' ? dirName : `${currentDir}/${dirName}`;
+  function renderDirRow(dir: DirectoryRow) {
+    const fullPath = dir.path;
     const prefix = `${fullPath}/`;
     const count = files.filter((f) => f.name.startsWith(prefix)).length;
+    const dragActive = dragOverFolder === fullPath;
     return (
-      <tr key={`dir:${fullPath}`} className="df-file-row df-dir-row">
+      <tr
+        key={`dir:${fullPath}`}
+        className={`df-file-row df-dir-row ${dragActive ? 'drag-over' : ''}`}
+        onDragEnter={(e) => {
+          if (!hasInternalFileDrag(e.dataTransfer)) return;
+          e.preventDefault();
+          setDragOverFolder(fullPath);
+        }}
+        onDragOver={(e) => {
+          if (!hasInternalFileDrag(e.dataTransfer)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          setDragOverFolder(fullPath);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+            setDragOverFolder((current) => (current === fullPath ? null : current));
+          }
+        }}
+        onDrop={(e) => {
+          if (!hasInternalFileDrag(e.dataTransfer)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const names = namesFromInternalDrag(e.dataTransfer, internalDragNamesRef.current);
+          internalDragNamesRef.current = [];
+          setDragOverFolder(null);
+          void moveFilesToFolder(names, fullPath);
+        }}
+      >
         <td className="df-cell-check" />
-        <td className="df-cell-icon df-cell-openable" onClick={() => setCurrentDir(fullPath)}>
+        <td className="df-cell-icon df-cell-openable" onClick={() => openDirectory(fullPath)}>
           <span className="df-row-icon" data-kind="folder" aria-hidden>
             <Icon name="folder" size={14} />
           </span>
         </td>
-        <td className="df-cell-name df-cell-openable" onClick={() => setCurrentDir(fullPath)}>
-          <button type="button" className="df-row-name-btn" onClick={() => setCurrentDir(fullPath)}>
+        <td className="df-cell-name df-cell-openable" onClick={() => openDirectory(fullPath)}>
+          <button type="button" className="df-row-name-btn" onClick={() => openDirectory(fullPath)}>
             <span className="df-row-name-wrap">
-              <span className="df-row-name">{dirName}</span>
+              <span className="df-row-name">{dir.label}</span>
               <span className="df-row-sub">{t('designFiles.folderCount', { n: count })}</span>
             </span>
           </button>
         </td>
-        <td className="df-cell-kind df-cell-openable" onClick={() => setCurrentDir(fullPath)}>
+        <td className="df-cell-kind df-cell-openable" onClick={() => openDirectory(fullPath)}>
           <span className="df-kind-label">{t('designFiles.kindFolder')}</span>
         </td>
-        <td className="df-cell-time df-cell-openable" onClick={() => setCurrentDir(fullPath)} />
+        <td className="df-cell-time df-cell-openable" onClick={() => openDirectory(fullPath)} />
         <td className="df-cell-menu" />
       </tr>
     );
@@ -1044,7 +1094,9 @@ export function DesignFilesPanel({
   }
 
   async function handleDrop(ev: React.DragEvent<HTMLDivElement>) {
+    if (!hasNativeFiles(ev.dataTransfer)) return;
     ev.preventDefault();
+    ev.stopPropagation();
     dragDepthRef.current = 0;
     setDraggingFiles(false);
     setDropReadError(null);
@@ -1129,6 +1181,12 @@ export function DesignFilesPanel({
       </div>
     ) : (
       <div className="df-actions">
+        {onCreateFolder ? (
+          <button type="button" onClick={() => void handleCreateFolder()} title="New folder">
+            <Icon name="folder" size={13} />
+            <span>{t('designFiles.kindFolder')}</span>
+          </button>
+        ) : null}
         <button type="button" onClick={onNewSketch} title={t('designFiles.newSketch')}>
           <Icon name="pencil" size={13} />
           <span>{t('designFiles.newSketch')}</span>
@@ -1258,7 +1316,31 @@ export function DesignFilesPanel({
   const visibleUploadError = uploadError ?? dropReadError;
 
   return (
-    <div className={`df-panel ${preview ? '' : 'no-preview'}`}>
+    <div
+      className={`df-panel ${preview ? '' : 'no-preview'} ${draggingFiles ? 'dragging-files' : ''}`}
+      onDragEnter={(ev) => {
+        if (!hasNativeFiles(ev.dataTransfer)) return;
+        ev.preventDefault();
+        dragDepthRef.current += 1;
+        setDraggingFiles(true);
+      }}
+      onDragOver={(ev) => {
+        if (!hasNativeFiles(ev.dataTransfer)) return;
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = 'copy';
+      }}
+      onDragLeave={(ev) => {
+        if (!hasNativeFiles(ev.dataTransfer)) return;
+        if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) {
+          dragDepthRef.current = 0;
+          setDraggingFiles(false);
+          return;
+        }
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setDraggingFiles(false);
+      }}
+      onDrop={handleDrop}
+    >
       <div className="df-main">
         <div className="df-body">
           {visibleUploadError && !preview ? (
@@ -1280,6 +1362,15 @@ export function DesignFilesPanel({
           ) : null}
           <div className="df-controls-row">
             {refreshControl}
+            <label className="df-search-control">
+              <Icon name="search" size={13} />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t('designFiles.searchPlaceholder')}
+                aria-label={t('designFiles.searchPlaceholder')}
+              />
+            </label>
             {groupToggle}
             {kindFilterControl}
             {fileActions}
@@ -1315,7 +1406,7 @@ export function DesignFilesPanel({
               })}
             </nav>
           ) : null}
-          {files.length === 0 && liveArtifacts.length === 0 ? (
+          {files.length === 0 && folderPaths.length === 0 && liveArtifacts.length === 0 ? (
             <div className="df-empty" data-testid="design-files-empty">
               <div className="df-empty-pill">
                 <span className="df-empty-title">
@@ -1588,25 +1679,6 @@ export function DesignFilesPanel({
           )}
           <div
             className={`df-drop ${draggingFiles ? 'dragging' : ''}`}
-            onDragEnter={(ev) => {
-              ev.preventDefault();
-              dragDepthRef.current += 1;
-              setDraggingFiles(true);
-            }}
-            onDragOver={(ev) => {
-              ev.preventDefault();
-              ev.dataTransfer.dropEffect = 'copy';
-            }}
-            onDragLeave={(ev) => {
-              if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) {
-                dragDepthRef.current = 0;
-                setDraggingFiles(false);
-                return;
-              }
-              dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-              if (dragDepthRef.current === 0) setDraggingFiles(false);
-            }}
-            onDrop={handleDrop}
           >
             <span className="label">{t('designFiles.dropTitle')}</span>
             <span className="desc">{t('designFiles.dropDesc')}</span>
@@ -1655,6 +1727,15 @@ export function DesignFilesPanel({
             }}
           >
             {t('common.rename')}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              startMove(menuPos.name);
+            }}
+          >
+            Move to folder...
           </button>
           <a
             href={projectFileUrl(projectId, menuPos.name)}
@@ -1825,6 +1906,36 @@ function HtmlPreviewThumbnail({
 function baseDirForFile(name: string): string {
   const index = name.lastIndexOf('/');
   return index >= 0 ? name.slice(0, index + 1) : '';
+}
+
+function basenameForProjectPath(name: string): string {
+  const parts = name.split('/').filter(Boolean);
+  return parts[parts.length - 1] ?? name;
+}
+
+function joinProjectPath(dir: string, basename: string): string {
+  const cleanDir = dir.trim().replace(/^\/+|\/+$/g, '');
+  return cleanDir ? `${cleanDir}/${basename}` : basename;
+}
+
+function hasNativeFiles(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types ?? []).includes('Files');
+}
+
+function hasInternalFileDrag(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types ?? []).includes('application/x-open-design-files');
+}
+
+function namesFromInternalDrag(dataTransfer: DataTransfer, fallback: string[]): string[] {
+  const raw = dataTransfer.getData('application/x-open-design-files');
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === 'string');
+  } catch {
+    // Fall through to the in-memory fallback from the current drag gesture.
+  }
+  return fallback;
 }
 
 function kindSortPriority(kind: ProjectFileKind): number {

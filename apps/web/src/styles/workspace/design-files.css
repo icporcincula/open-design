@@ -265,8 +265,7 @@
   min-width: 0;
   padding: 9px 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-panel) 98%, #fff) 0%, var(--bg-panel) 100%);
+  background: var(--bg-panel);
   box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 45%, transparent);
   z-index: 3;
 }
@@ -358,7 +357,7 @@
   min-width: 0;
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
   border-radius: 11px;
-  background: color-mix(in srgb, var(--bg) 72%, var(--bg-subtle));
+  background: var(--bg-panel);
   color: var(--text-muted);
   display: flex;
   align-items: center;

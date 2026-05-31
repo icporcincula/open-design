@@ -644,6 +644,7 @@
   z-index: 90;
   width: 320px;
   max-width: calc(100vw - 24px);
+  max-height: min(760px, calc(100vh - 92px));
   max-height: min(760px, calc(100dvh - 92px));
   overflow-y: auto;
   overscroll-behavior: contain;

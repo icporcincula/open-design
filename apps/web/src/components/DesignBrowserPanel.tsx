@@ -1075,13 +1075,25 @@ export function labelFromUrl(url: string): string {
   }
 }
 
-export function formatAddressDisplay(url: string, title?: string): string {
-  if (url === EMPTY_URL) return '';
+export interface AddressDisplayParts {
+  url: string;
+  title?: string;
+}
+
+export function formatAddressDisplayParts(url: string, title?: string): AddressDisplayParts {
+  if (url === EMPTY_URL) return { url: '' };
   const cleanTitle = title?.trim();
-  if (!cleanTitle) return url;
+  if (!cleanTitle) return { url };
   const fallback = labelFromUrl(url);
-  if (cleanTitle === fallback || cleanTitle === url) return url;
-  return `${url} / ${cleanTitle}`;
+  if (cleanTitle === fallback || cleanTitle === url) return { url };
+  return { url, title: cleanTitle };
+}
+
+export function formatAddressDisplay(url: string, title?: string): string {
+  const parts = formatAddressDisplayParts(url, title);
+  if (!parts.url) return '';
+  if (!parts.title) return parts.url;
+  return `${parts.url} / ${parts.title}`;
 }
 
 export function hostnameFromUrl(url: string): string {

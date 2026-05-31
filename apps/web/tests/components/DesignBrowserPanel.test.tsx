@@ -7,6 +7,7 @@ import {
   browserHarnessTaskMarkdown,
   faviconUrl,
   formatAddressDisplay,
+  formatAddressDisplayParts,
   hostnameFromUrl,
   isHistoryEntry,
   isHistoryUrl,
@@ -117,6 +118,13 @@ describe('formatAddressDisplay', () => {
     expect(formatAddressDisplay('https://www.baidu.com/', '百度一下，你就知道')).toBe(
       'https://www.baidu.com/ / 百度一下，你就知道',
     );
+  });
+
+  it('exposes URL and title as separate passive display parts', () => {
+    expect(formatAddressDisplayParts('https://brandfetch.com/', 'Just a moment...')).toEqual({
+      url: 'https://brandfetch.com/',
+      title: 'Just a moment...',
+    });
   });
 
   it('keeps the blank tab display empty', () => {
