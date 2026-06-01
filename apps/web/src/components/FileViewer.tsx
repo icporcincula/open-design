@@ -239,6 +239,11 @@ type InspectTarget = {
 const MAX_CACHED_SLIDE_STATES = 64;
 const htmlPreviewSlideState = new Map<string, SlideState>();
 const MAX_CACHED_PREVIEW_VIEWPORTS = 128;
+// Grace window before the inspect hover card is torn down. Long enough to absorb
+// the async iframe mouseout (od:comment-leave) that fires when the pointer slides
+// onto the card or hops back onto the element under it, short enough to read as
+// an immediate dismiss when the pointer really leaves.
+const HOVER_CARD_DISMISS_DELAY_MS = 80;
 const htmlPreviewViewportState = new Map<string, PreviewViewportId>();
 const MARKDOWN_CODE_BLOCK_ATTR = 'data-markdown-code-block';
 const MARKDOWN_COPY_BLOCK_ATTR = 'data-copy-code-block';
@@ -4242,6 +4247,29 @@ const [manualEditTargets, setManualEditTargets] = useState<ManualEditTarget[]>([
   // The pointer cannot be over the iframe and the host card at once, so a fresh
   // od:comment-hover never races this; only the card's own leave clears it.
   const hoverCardPinnedRef = useRef(false);
+  // Tearing the card down is always deferred by a beat rather than done
+  // synchronously. The iframe's mouseout (od:comment-leave) arrives async via
+  // postMessage; the card's own mouseenter and the next od:comment-hover are the
+  // signals that the pointer actually landed on the card or back on the element
+  // it overlaps. Deferring lets those cancel the dismiss before it lands.
+  // Synchronous teardown raced ahead of them: the card flickered on the way in
+  // and vanished the moment you moved off it back onto the element it described.
+  const hoverCardDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelHoverCardDismiss = useCallback(() => {
+    if (hoverCardDismissTimerRef.current !== null) {
+      clearTimeout(hoverCardDismissTimerRef.current);
+      hoverCardDismissTimerRef.current = null;
+    }
+  }, []);
+  const scheduleHoverCardDismiss = useCallback(() => {
+    if (hoverCardDismissTimerRef.current !== null) clearTimeout(hoverCardDismissTimerRef.current);
+    hoverCardDismissTimerRef.current = setTimeout(() => {
+      hoverCardDismissTimerRef.current = null;
+      // hoverCardPinnedRef tracks "pointer is physically over the card". If it
+      // got (re-)pinned while we waited, this now-stale dismiss must not fire.
+      if (!hoverCardPinnedRef.current) setHoveredCommentTarget(null);
+    }, HOVER_CARD_DISMISS_DELAY_MS);
+  }, []);
   const [hoveredPodMemberId, setHoveredPodMemberId] = useState<string | null>(null);
   // If the card unmounts for any other reason while the pointer is still over
   // it (its onMouseLeave never fires), drop the pin so later leaves dismiss
@@ -4249,6 +4277,8 @@ const [manualEditTargets, setManualEditTargets] = useState<ManualEditTarget[]>([
   useEffect(() => {
     if (!hoveredCommentTarget) hoverCardPinnedRef.current = false;
   }, [hoveredCommentTarget]);
+  // Don't let a pending dismiss outlive the component.
+  useEffect(() => cancelHoverCardDismiss, [cancelHoverCardDismiss]);
   const [activePreviewCommentId, setActivePreviewCommentId] = useState<string | null>(null);
   const [liveCommentTargets, setLiveCommentTargets] = useState<Map<string, PreviewCommentSnapshot>>(() => new Map());
   const liveCommentTargetsRef = useRef(liveCommentTargets);
@@ -5067,15 +5097,22 @@ const [manualEditTargets, setManualEditTargets] = useState<ManualEditTarget[]>([
         return;
       }
       if (data.type === 'od:comment-leave') {
-        // Pointer moved from the element onto the floating hover card, not away
-        // from it — keep the card mounted so it doesn't flicker.
+        // Already firmly on the card — nothing to dismiss.
         if (hoverCardPinnedRef.current) return;
-        setHoveredCommentTarget(null);
+        // The pointer left the element. It may be sliding onto the floating card
+        // (which overlaps the iframe) or hopping toward an adjacent element —
+        // both should keep the card up. Defer the dismiss so the card's
+        // mouseenter or the next comment-hover can cancel it; only a leave with
+        // nothing following actually tears the card down.
+        scheduleHoverCardDismiss();
         return;
       }
       if (data.type === 'od:comment-hover') {
         const snapshot = snapshotFromData(data);
         if (!snapshot.elementId) return;
+        // Pointer landed on an element — cancel any deferred dismiss so moving
+        // from the card back onto the element it describes keeps the card.
+        cancelHoverCardDismiss();
         setHoveredCommentTarget(snapshot);
         setLiveCommentTargets((current) => new Map(current).set(snapshot.elementId, snapshot));
         return;
@@ -5084,6 +5121,7 @@ const [manualEditTargets, setManualEditTargets] = useState<ManualEditTarget[]>([
         const snapshot = snapshotFromData(data);
         if (!snapshot.elementId) return;
         const shouldOpenComposer = boardMode || commentCreateMode;
+        cancelHoverCardDismiss();
         setActiveCommentTarget((current) => (shouldOpenComposer ? snapshot : current));
         setHoveredCommentTarget(snapshot);
         setLiveCommentTargets((current) => new Map(current).set(snapshot.elementId, snapshot));
@@ -5132,7 +5170,7 @@ const [manualEditTargets, setManualEditTargets] = useState<ManualEditTarget[]>([
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [activeCommentTarget, boardMode, boardTool, commentPortalHost, file.name, isOurPreviewIframeSource, previewComments]);
+  }, [activeCommentTarget, boardMode, boardTool, cancelHoverCardDismiss, commentPortalHost, file.name, isOurPreviewIframeSource, previewComments, scheduleHoverCardDismiss]);
 
   useEffect(() => {
     if (!boardMode || !activeCommentTarget || activeCommentTarget.selectionKind === 'pod') return;
@@ -7185,10 +7223,16 @@ const [manualEditTargets, setManualEditTargets] = useState<ManualEditTarget[]>([
                 scale={overlayPreviewScale}
                 onMouseEnter={() => {
                   hoverCardPinnedRef.current = true;
+                  cancelHoverCardDismiss();
                 }}
                 onMouseLeave={() => {
                   hoverCardPinnedRef.current = false;
-                  setHoveredCommentTarget(null);
+                  // Defer: the pointer may be moving back onto the element the
+                  // card describes (a fresh comment-hover will cancel this) or
+                  // off into empty space (then this dismiss lands). Clearing
+                  // synchronously here is what made the card vanish when you
+                  // moved off it while still hovering the element.
+                  scheduleHoverCardDismiss();
                 }}
               />
             ) : null}
