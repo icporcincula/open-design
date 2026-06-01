@@ -359,6 +359,7 @@ Planned File Changes:
 ### Verification
 
 - Passed: `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/amr-acp-integration.test.ts`.
+- Passed after log-check import fix: `pnpm --filter @open-design/daemon typecheck`.
 - Passed: `pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts tests/chat-route.test.ts -t "retries transient AMR Link catalog failures"`.
 - Passed: `pnpm --filter @open-design/web exec vitest run -c vitest.config.ts tests/providers/daemon-amr-models.test.ts`.
 - Passed: `pnpm --filter @open-design/daemon typecheck && pnpm --filter @open-design/web typecheck && pnpm --filter @open-design/contracts typecheck`.

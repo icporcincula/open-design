@@ -61,6 +61,11 @@ import {
   amrAccountFailureDetails,
   classifyAmrAccountFailure,
 } from './integrations/vela-errors.js';
+import { amrModelLoadingCache } from './runtimes/amr-model-cache.js';
+import {
+  fetchVelaPresetModels,
+  fetchVelaRemoteModelsWithRetry,
+} from './runtimes/defs/amr.js';
 import { migrateLegacyDataDirSync } from './legacy-data-migrator.js';
 import {
   consumedImportNonces,
