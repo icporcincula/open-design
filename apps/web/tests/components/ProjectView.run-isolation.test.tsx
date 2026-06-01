@@ -108,17 +108,23 @@ vi.mock('../../src/components/AvatarMenu', () => ({
 vi.mock('../../src/components/FileWorkspace', () => ({
   FileWorkspace: ({
     streaming,
+    commentQueueOnSend,
+    commentSendDisabled,
     onSendBoardCommentAttachments,
     onCommentModeChange,
     onFocusModeChange,
   }: {
     streaming: boolean;
+    commentQueueOnSend?: boolean;
+    commentSendDisabled?: boolean;
     onSendBoardCommentAttachments: (attachments: unknown[]) => void;
     onCommentModeChange?: (active: boolean) => void;
     onFocusModeChange?: (focused: boolean) => void;
   }) => (
     <>
       <output data-testid="workspace-streaming-state">{streaming ? 'streaming' : 'idle'}</output>
+      <output data-testid="workspace-comment-queue-on-send">{commentQueueOnSend ? 'queue' : 'send'}</output>
+      <output data-testid="workspace-comment-send-disabled">{commentSendDisabled ? 'disabled' : 'enabled'}</output>
       <button
         type="button"
         data-testid="workspace-open-comments"
@@ -612,6 +618,40 @@ describe('ProjectView conversation run isolation', () => {
       projectId: 'project-1',
     }));
   });
+
+  it('queues board comments while the active conversation is busy', async () => {
+    let finishReattach: (() => void) | null = null;
+    let reattachHandlers: { onDone: () => void } | null = null;
+    reattachDaemonRun.mockImplementation(async (input: unknown) => {
+      reattachHandlers = (input as { handlers: { onDone: () => void } }).handlers;
+      return new Promise<void>((resolve) => {
+        finishReattach = resolve;
+      });
+    });
+
+    renderProjectView();
+
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-a'));
+    await waitFor(() => expect(screen.getByTestId('streaming-state').textContent).toBe('streaming'));
+    expect(screen.getByTestId('workspace-comment-queue-on-send').textContent).toBe('queue');
+    expect(screen.getByTestId('workspace-comment-send-disabled').textContent).toBe('enabled');
+
+    fireEvent.click(screen.getByTestId('workspace-send-comment'));
+
+    await waitFor(() => expect(screen.getByTestId('send-queued-0')).toBeTruthy());
+    expect(streamViaDaemon).not.toHaveBeenCalled();
+
+    await act(async () => {
+      reattachHandlers?.onDone();
+      finishReattach?.();
+    });
+
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(1));
+    expect(streamViaDaemon).toHaveBeenCalledWith(expect.objectContaining({
+      commentAttachments: [expect.objectContaining({ id: 'comment-1' })],
+    }));
+  });
+
   it('detaches saved comment attachments after queueing them for a busy conversation', async () => {
     fetchPreviewComments.mockResolvedValue([previewComment]);
 
