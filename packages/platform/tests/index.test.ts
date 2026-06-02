@@ -397,25 +397,32 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
   });
 
   it("parses Windows user-level proxy env values from HKCU Environment", () => {
-    const env = parseWindowsUserEnvironmentProxyOutput({
-      HTTP_PROXY: `
+    const env = parseWindowsUserEnvironmentProxyOutput(
+      {
+        HTTP_PROXY: `
 HKEY_CURRENT_USER\\Environment
     http_proxy    REG_SZ    http://127.0.0.1:7890
 `,
-      HTTPS_PROXY: `
+        HTTPS_PROXY: `
 HKEY_CURRENT_USER\\Environment
-    HTTPS_PROXY    REG_EXPAND_SZ    http://127.0.0.1:7890
+    HTTPS_PROXY    REG_EXPAND_SZ    %CORP_PROXY_URL%
 `,
-      NO_PROXY: `
+        NO_PROXY: `
 HKEY_CURRENT_USER\\Environment
-    NO_PROXY    REG_SZ    localhost,127.0.0.1
+    NO_PROXY    REG_EXPAND_SZ    %COMPUTERNAME%,localhost,127.0.0.1
 `,
-    });
+      },
+      "win32",
+      {
+        COMPUTERNAME: "BUILD-WIN-01",
+        CORP_PROXY_URL: "http://127.0.0.1:7890",
+      },
+    );
 
     expect(env).toEqual({
       HTTP_PROXY: "http://127.0.0.1:7890",
       HTTPS_PROXY: "http://127.0.0.1:7890",
-      NO_PROXY: "localhost,127.0.0.1",
+      NO_PROXY: "BUILD-WIN-01,localhost,127.0.0.1",
       NODE_USE_ENV_PROXY: "1",
     });
   });

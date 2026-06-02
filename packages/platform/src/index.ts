@@ -351,11 +351,22 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function parseRegistryValue(stdout: string, valueName: string): string | null {
+function parseRegistryEntry(stdout: string, valueName: string): { type: string; value: string } | null {
   const match = stdout.match(
-    new RegExp(`^\\s*${escapeRegExp(valueName)}\\s+REG_\\w+\\s+(.+)$`, "im"),
+    new RegExp(`^\\s*${escapeRegExp(valueName)}\\s+(REG_\\w+)\\s+(.+)$`, "im"),
   );
-  return match ? match[1].trim() : null;
+  return match ? { type: match[1].trim().toUpperCase(), value: match[2].trim() } : null;
+}
+
+function parseRegistryValue(stdout: string, valueName: string): string | null {
+  return parseRegistryEntry(stdout, valueName)?.value ?? null;
+}
+
+function expandWindowsEnvironmentValue(value: string, env: NodeJS.ProcessEnv): string {
+  return value.replace(/%([^%]+)%/g, (placeholder, name: string) => {
+    const match = Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase());
+    return match?.[1] ?? placeholder;
+  });
 }
 
 export function parseWindowsInternetSettingsProxyOutput(
@@ -400,12 +411,17 @@ export function parseWindowsInternetSettingsProxyOutput(
 export function parseWindowsUserEnvironmentProxyOutput(
   input: Partial<Record<ProxyEnvKey, string>>,
   platform: NodeJS.Platform = "win32",
+  expansionEnv: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, stdout] of Object.entries(input)) {
     if (!stdout) continue;
-    const value = parseRegistryValue(stdout, key);
-    if (!value) continue;
+    const registryEntry = parseRegistryEntry(stdout, key);
+    if (!registryEntry?.value) continue;
+    const value =
+      registryEntry.type === "REG_EXPAND_SZ"
+        ? expandWindowsEnvironmentValue(registryEntry.value, expansionEnv)
+        : registryEntry.value;
     setCanonicalProxyEnvValue(
       env,
       key as ProxyEnvKey,
