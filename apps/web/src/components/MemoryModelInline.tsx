@@ -128,6 +128,7 @@ function cliAgentLabel(agentId: string | null | undefined): string | null {
     codex: 'Codex CLI',
     gemini: 'Gemini CLI',
     opencode: 'OpenCode',
+    amr: 'AMR',
     qwen: 'Qwen Code',
     qoder: 'Qoder CLI',
     copilot: 'GitHub Copilot CLI',
