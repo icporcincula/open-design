@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_profile="${OPEN_DESIGN_RELEASE_PROFILE:-}"
+if [ -n "$source_profile" ]; then
+  # Self-hosted mac runners run as LaunchDaemons with a thin default PATH.
+  # Source the runner profile explicitly when the workflow provides one.
+  # shellcheck disable=SC1090
+  source "$source_profile"
+fi
+
+required() {
+  local name="$1"
+  if [ -z "${!name:-}" ]; then
+    echo "$name is required" >&2
+    exit 1
+  fi
+}
+
+require_command() {
+  local name="$1"
+  if ! command -v "$name" >/dev/null 2>&1; then
+    echo "$name is required" >&2
+    exit 1
+  fi
+}
+
+ensure_pnpm() {
+  require_command corepack
+  corepack enable
+  corepack prepare pnpm@10.33.2 --activate
+  hash -r
+  local pnpm_version
+  pnpm_version="$(pnpm --version)"
+  if [ "$pnpm_version" != "10.33.2" ]; then
+    echo "expected pnpm 10.33.2, got $pnpm_version" >&2
+    exit 1
+  fi
+}
+
+inspect_electron_framework_symlinks() {
+  local electron_dist framework missing_links
+  electron_dist="$(node -e 'const path = require("node:path"); const { createRequire } = require("node:module"); const requireFromDesktop = createRequire(path.join(process.cwd(), "apps/desktop/package.json")); const electron = requireFromDesktop.resolve("electron"); process.stdout.write(path.join(path.dirname(electron), "dist"));')"
+  framework="$electron_dist/Electron.app/Contents/Frameworks/Electron Framework.framework"
+  missing_links=0
+  for link in \
+    "$framework/Electron Framework" \
+    "$framework/Helpers" \
+    "$framework/Libraries" \
+    "$framework/Resources" \
+    "$framework/Versions/Current"; do
+    if [ ! -L "$link" ]; then
+      echo "::warning::Expected Electron framework symlink, got non-symlink: $link"
+      missing_links=1
+    fi
+  done
+  if [ "$missing_links" -ne 0 ]; then
+    ls -la "$framework" >&2 || true
+    ls -la "$framework/Versions" >&2 || true
+    echo "Continuing into tools-pack because electron-builder is the source of truth for whether packaging actually works."
+  fi
+}
+
+prepare_mac_signing() {
+  required APPLE_SIGNING_CERTIFICATE_BASE64
+  required APPLE_SIGNING_CERTIFICATE_PASSWORD
+  required APPLE_ID
+  required APPLE_APP_SPECIFIC_PASSWORD
+  required APPLE_TEAM_ID
+
+  local cert_path="$RUNNER_TEMP/open-design-signing.p12"
+  if ! printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 --decode > "$cert_path" 2>/dev/null; then
+    printf '%s' "$APPLE_SIGNING_CERTIFICATE_BASE64" | base64 -D > "$cert_path"
+  fi
+  export CSC_LINK="$cert_path"
+  export CSC_KEY_PASSWORD="$APPLE_SIGNING_CERTIFICATE_PASSWORD"
+}
+
+capture_framework_diagnostics() {
+  local namespace="$1"
+  local output="${MAC_FRAMEWORK_DIAGNOSTICS_PATH:-$RUNNER_TEMP/mac-framework-diagnostics.txt}"
+  local source_resolve_log="$RUNNER_TEMP/mac-framework-source-resolve.err"
+  local source_framework built_framework
+  source_framework="$(node -e 'const path = require("node:path"); const { createRequire } = require("node:module"); const requireFromDesktop = createRequire(path.join(process.cwd(), "apps/desktop/package.json")); const electron = requireFromDesktop.resolve("electron"); process.stdout.write(path.join(path.dirname(electron), "dist", "Electron.app", "Contents", "Frameworks", "Electron Framework.framework"));' 2>"$source_resolve_log" || true)"
+  built_framework="$tools_pack_dir/out/mac/namespaces/$namespace/builder/mac-arm64/Open Design Beta.app/Contents/Frameworks/Electron Framework.framework"
+
+  dump_framework() {
+    local label="$1"
+    local framework="$2"
+    echo "## $label"
+    echo "path=$framework"
+    if [ ! -e "$framework" ] && [ ! -L "$framework" ]; then
+      echo "missing"
+      return 0
+    fi
+    echo "### top-level"
+    ls -la "$framework" || true
+    echo "### symlinks"
+    find "$framework" -maxdepth 4 -type l -print0 | while IFS= read -r -d '' link; do
+      printf '%s -> %s\n' "$link" "$(readlink "$link")"
+    done || true
+    echo "### selected stat"
+    for path in \
+      "$framework" \
+      "$framework/Electron Framework" \
+      "$framework/Versions" \
+      "$framework/Versions/Current" \
+      "$framework/Versions/Current/Electron Framework" \
+      "$framework/Versions/A" \
+      "$framework/Versions/A/Electron Framework" \
+      "$framework/Resources" \
+      "$framework/Versions/A/Resources/Info.plist"; do
+      if [ -e "$path" ] || [ -L "$path" ]; then
+        stat -f '%Sp %HT %N' "$path" || true
+      else
+        echo "missing: $path"
+      fi
+    done
+    echo "### plist"
+    plutil -p "$framework/Versions/A/Resources/Info.plist" 2>&1 || true
+    echo "### codesign display"
+    codesign --display --verbose=4 "$framework/Electron Framework" 2>&1 || true
+    codesign --display --verbose=4 "$framework/Versions/Current/Electron Framework" 2>&1 || true
+    codesign --display --verbose=4 "$framework/Versions/A/Electron Framework" 2>&1 || true
+    codesign --display --verbose=4 "$framework" 2>&1 || true
+  }
+
+  {
+    date -u
+    if [ -n "$source_framework" ]; then
+      dump_framework "source Electron Framework" "$source_framework"
+    else
+      echo "## source Electron Framework"
+      echo "resolve failed"
+      cat "$source_resolve_log" || true
+    fi
+    dump_framework "built Electron Framework" "$built_framework"
+  } > "$output"
+  cat "$output"
+}
+
+required RELEASE_VERSION
+required RUNNER_TEMP
+
+tools_pack_dir="${TOOLS_PACK_DIR:-$RUNNER_TEMP/tools-pack}"
+build_json_path="${BUILD_JSON_PATH:-$RUNNER_TEMP/mac-tools-pack-build.json}"
+build_log_path="${BUILD_LOG_PATH:-$RUNNER_TEMP/mac-tools-pack-build.log}"
+namespace="${TOOLS_PACK_NAMESPACE:-release-beta}"
+sign_mode="${MAC_SIGN_MODE:-on}"
+target="${MAC_BUILD_TARGET:-dmg}"
+compression="${MAC_COMPRESSION:-normal}"
+require_vela_cli="${REQUIRE_VELA_CLI:-true}"
+
+case "$sign_mode" in
+  off | on) ;;
+  *)
+    echo "unsupported MAC_SIGN_MODE: $sign_mode" >&2
+    exit 1
+    ;;
+esac
+
+case "$require_vela_cli" in
+  true | false) ;;
+  *)
+    echo "unsupported REQUIRE_VELA_CLI: $require_vela_cli" >&2
+    exit 1
+    ;;
+esac
+
+require_command node
+ensure_pnpm
+echo "node=$(node --version)"
+echo "pnpm=$(pnpm --version)"
+
+pnpm install --frozen-lockfile
+inspect_electron_framework_symlinks
+
+if [ "$sign_mode" = "on" ]; then
+  prepare_mac_signing
+fi
+
+rm -rf "$tools_pack_dir"
+mkdir -p "$(dirname "$build_json_path")" "$(dirname "$build_log_path")"
+: > "$build_log_path"
+
+build_args=(
+  exec tools-pack mac build
+  --dir "$tools_pack_dir"
+  --namespace "$namespace"
+  --portable
+  --app-version "$RELEASE_VERSION"
+  --mac-compression "$compression"
+  --to "$target"
+  --json
+)
+if [ "$require_vela_cli" = "true" ]; then
+  build_args+=(--require-vela-cli)
+fi
+if [ "$sign_mode" = "on" ]; then
+  build_args+=(--signed)
+fi
+
+if build_output="$(pnpm "${build_args[@]}" 2> >(tee -a "$build_log_path" >&2))"; then
+  printf '%s\n' "$build_output" | tee "$build_json_path"
+else
+  build_status=$?
+  printf '%s\n' "$build_output"
+  capture_framework_diagnostics "$namespace" || true
+  exit "$build_status"
+fi

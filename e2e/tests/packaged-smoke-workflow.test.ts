@@ -106,11 +106,15 @@ describe("packaged smoke workflow", () => {
     expect(releaseBetaWorkflow).toContain("OD_PACKAGED_E2E_RELEASE_VERSION: ${{ needs.metadata.outputs.beta_version }}");
   });
 
-  it("keeps the self-hosted beta lane metadata-driven with an explicit signing probe", async () => {
+  it("keeps the self-hosted beta lane metadata-driven with reusable platform publish scripts", async () => {
     const workflow = await readFile(releaseBetaSelfHostedWorkflowPath, "utf8");
 
+    expect(workflow).toContain("enable_mac:");
+    expect(workflow).toContain("mac_sign_mode:");
+    expect(workflow).toContain("default: off");
     expect(workflow).toContain("name: Prepare beta metadata");
     expect(workflow).toContain("OPEN_DESIGN_BETA_METADATA_URL: ${{ inputs.s3_public_origin }}/beta/latest/metadata.json");
+    expect(workflow).toContain("release-beta-s requires at least one self-hosted platform");
     expect(workflow).toContain("name: Probe Windows signing capability");
     expect(workflow).toContain("probe-win-signing.ps1");
     expect(workflow).toContain("needs: metadata");
@@ -122,11 +126,24 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain("publish-platform.ps1");
     expect(workflow).toContain("Upload windows publish manifest");
     expect(workflow).toContain("open-design-beta-win-publish-manifest");
+    expect(workflow).toContain("runs-on: [self-hosted, macOS, ARM64, nexu-mac, release-beta]");
+    expect(workflow).toContain("bash .github/scripts/release/build-mac.sh");
+    expect(workflow).toContain("MAC_SIGN_MODE: ${{ inputs.mac_sign_mode }}");
+    expect(workflow).toContain("OPEN_DESIGN_RELEASE_PROFILE: /Users/runner/.profile");
+    expect(workflow).toContain("ASSET_VERSION_SUFFIX: ${{ inputs.mac_sign_mode == 'on' && needs.metadata.outputs.asset_version_suffix || '.unsigned' }}");
+    expect(workflow).toContain("open-design-beta-mac-release-assets");
+    expect(workflow).toContain("Publish beta mac assets to Nexu S3");
+    expect(workflow).toContain("RELEASE_PLATFORM: mac");
+    expect(workflow).toContain("RELEASE_SIGNED: ${{ inputs.mac_sign_mode == 'on' && 'true' || 'false' }}");
     expect(workflow).toContain("name: Publish beta metadata to Nexu S3");
-    expect(workflow).toContain("publish-beta-metadata.ps1");
+    expect(workflow).toContain("node --experimental-strip-types .github/scripts/release/r2/publish-beta-metadata.ts");
+    expect(workflow).toContain("ASSET_VERSION_SUFFIX: auto");
     expect(workflow).toContain("actions/download-artifact@v8");
     expect(workflow).toContain('STATE_SOURCE: ${{ needs.metadata.outputs.state_source }}');
-    expect(workflow).toContain('probe-beta-public-read.ps1 -MetadataUrl "${{ steps.publish_metadata.outputs.metadata_url }}"');
+    expect(workflow).toContain("Verify beta metadata");
+    expect(workflow).toContain("node --experimental-strip-types .github/scripts/release/r2/verify-beta-metadata.ts");
+    expect(workflow).not.toContain("publish-beta-metadata.ps1");
+    expect(workflow).not.toContain("probe-beta-public-read.ps1");
     expect(workflow).not.toContain("publish-beta.ps1 -IndexPath");
   });
 });

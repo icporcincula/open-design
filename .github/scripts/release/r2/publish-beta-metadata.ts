@@ -2,6 +2,16 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+type PlatformManifest = {
+  artifacts?: Record<string, { url?: string }>;
+  enabled?: boolean;
+  feed?: { latestUrl?: string };
+  label?: string;
+  result?: string;
+  signed?: boolean;
+  status?: string;
+};
+
 function required(name) {
   const value = process.env[name];
   if (value == null || value.length === 0) {
@@ -53,7 +63,7 @@ function setOutput(name, value) {
   appendFileSync(outputPath, `${name}=${value}\n`);
 }
 
-function readManifest(key) {
+function readManifest(key): PlatformManifest | null {
   const path = join(manifestRoot, `${key}.json`);
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, "utf8"));
@@ -69,10 +79,9 @@ if (releaseChannel !== "beta") {
 }
 
 const releaseVersion = required("RELEASE_VERSION");
-const assetVersionSuffix = optional("ASSET_VERSION_SUFFIX");
-const versionPrefix = optional("RELEASE_VERSION_PREFIX", `${releaseChannel}/versions/${releaseVersion}${assetVersionSuffix}`);
 const latestPrefix = `${releaseChannel}/latest`;
 const manifestRoot = optional("PLATFORM_MANIFEST_ROOT", join(runnerTemp, "release-platform-manifests"));
+const requestedAssetVersionSuffix = optional("ASSET_VERSION_SUFFIX");
 
 const platformDefs = [
   { env: "ENABLE_MAC", key: "mac", label: "macOS arm64", result: optional("MAC_RESULT", "skipped") },
@@ -81,10 +90,10 @@ const platformDefs = [
   { env: "ENABLE_MAC_INTEL", key: "macIntel", label: "macOS x64 (Intel)", result: optional("MAC_INTEL_RESULT", "skipped") },
 ];
 
-const platforms = {};
-const expectedPlatforms = [];
-const readyPlatforms = [];
-const failedPlatforms = [];
+const platforms: Record<string, PlatformManifest> = {};
+const expectedPlatforms: string[] = [];
+const readyPlatforms: string[] = [];
+const failedPlatforms: string[] = [];
 
 for (const def of platformDefs) {
   if (!enabled(def.env)) continue;
@@ -109,6 +118,13 @@ for (const def of platformDefs) {
   }
 }
 
+let assetVersionSuffix = requestedAssetVersionSuffix;
+if (assetVersionSuffix === "auto") {
+  const readyManifests = readyPlatforms.map((key) => platforms[key]).filter((manifest) => manifest != null);
+  const hasSignedPlatform = readyManifests.some((manifest) => manifest.signed === true);
+  assetVersionSuffix = hasSignedPlatform ? "" : ".unsigned";
+}
+
 let releaseState = "failed";
 if (expectedPlatforms.length > 0 && readyPlatforms.length === expectedPlatforms.length) {
   releaseState = "complete";
@@ -116,6 +132,7 @@ if (expectedPlatforms.length > 0 && readyPlatforms.length === expectedPlatforms.
   releaseState = "partial";
 }
 
+const versionPrefix = optional("RELEASE_VERSION_PREFIX", `${releaseChannel}/versions/${releaseVersion}${assetVersionSuffix}`);
 const reportUrl = publicUrl(versionPrefix, "report/");
 const latestMetadataUpdated = releaseState === "complete";
 const metadata = {
