@@ -554,6 +554,7 @@ describe('buildTracePayload', () => {
           errorCode: 'RATE_LIMITED',
           failure: {
             failure_category: 'rate_limit',
+            failure_detail: 'hard_quota',
             failure_stage: 'session_init',
             retryable: false,
             user_action: 'none',
@@ -568,6 +569,7 @@ describe('buildTracePayload', () => {
     expect(metadata.langfuse_delivery_status).toBe('not_expected');
     expect(metadata.langfuse_drop_reason).toBe('content_consent_off');
     expect(metadata.failure_category).toBe('rate_limit');
+    expect(metadata.failure_detail).toBe('hard_quota');
     expect(metadata.failure_stage).toBe('session_init');
     expect(metadata.retryable).toBe(false);
     expect(metadata.user_action).toBe('none');

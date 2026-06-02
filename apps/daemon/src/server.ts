@@ -239,6 +239,7 @@ import { createChatRunService } from './runs.js';
 import { deriveRunErrorCode, runResultFromStatus } from './run-result.js';
 import { classifyRunFailure } from './run-failure-classification.js';
 import {
+  hasExplicitRequestedModelForAnalytics,
   scanRunEventsForUsageAnalytics,
   summarizeRunTimingAnalytics,
 } from './run-analytics-observability.js';
@@ -13610,10 +13611,9 @@ export async function startServer({
           exitCode: status.exitCode ?? null,
           signal: status.signal ?? null,
         });
-        const finishedModelId =
-          typeof reqBody.model === 'string' && reqBody.model.trim()
-            ? modelIdForTracking(reqBody.model)
-            : modelIdForTracking(usageAnalytics.agent_reported_model);
+        const finishedModelId = hasExplicitRequestedModelForAnalytics(reqBody.model)
+          ? modelIdForTracking(reqBody.model)
+          : modelIdForTracking(usageAnalytics.agent_reported_model);
         design.analytics.capture({
           eventName: 'run_finished',
           context: analyticsContext,

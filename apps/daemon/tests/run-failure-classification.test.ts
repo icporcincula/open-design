@@ -92,6 +92,7 @@ describe('classifyRunFailure', () => {
       }),
     ).toEqual({
       failure_category: 'user_cancel',
+      failure_detail: 'user_cancelled',
       failure_stage: 'finalize',
       retryable: false,
       user_action: 'none',
@@ -121,6 +122,7 @@ describe('classifyRunFailure', () => {
       }),
     ).toEqual({
       failure_category: 'user_cancel',
+      failure_detail: 'user_cancelled',
       failure_stage: 'finalize',
       retryable: false,
       user_action: 'none',
@@ -158,6 +160,7 @@ describe('classifyRunFailure', () => {
   it('maps auth-required failures to login guidance', () => {
     expect(classify('AGENT_AUTH_REQUIRED')).toMatchObject({
       failure_category: 'auth',
+      failure_detail: 'auth_required',
       failure_stage: 'session_init',
       retryable: false,
       user_action: 'login',
@@ -173,8 +176,32 @@ describe('classifyRunFailure', () => {
       ),
     ).toMatchObject({
       failure_category: 'auth',
+      failure_detail: 'auth_required',
       failure_stage: 'session_init',
       retryable: false,
+      user_action: 'login',
+    });
+  });
+
+  it('maps auth subtypes from profile and token text', () => {
+    expect(
+      classify(
+        'AGENT_EXECUTION_FAILED',
+        'Claude Code may be using a different or stale local profile than your terminal.',
+      ),
+    ).toMatchObject({
+      failure_category: 'auth',
+      failure_detail: 'stale_profile',
+      user_action: 'login',
+    });
+    expect(
+      classify(
+        'AGENT_EXECUTION_FAILED',
+        'Your access token could not be refreshed because your refresh token was already used.',
+      ),
+    ).toMatchObject({
+      failure_category: 'auth',
+      failure_detail: 'refresh_token_reused',
       user_action: 'login',
     });
   });
@@ -184,6 +211,7 @@ describe('classifyRunFailure', () => {
       classify('AGENT_EXECUTION_FAILED', 'Model not found: vela/deepseek-v3-2'),
     ).toMatchObject({
       failure_category: 'model_unavailable',
+      failure_detail: 'model_not_found',
       failure_stage: 'model_select',
       retryable: false,
       user_action: 'switch_model',
@@ -198,6 +226,7 @@ describe('classifyRunFailure', () => {
       ),
     ).toMatchObject({
       failure_category: 'rate_limit',
+      failure_detail: 'hard_quota',
       retryable: false,
       user_action: 'none',
     });
@@ -206,6 +235,7 @@ describe('classifyRunFailure', () => {
   it('treats ordinary 429 rate limits as retryable', () => {
     expect(classify('RATE_LIMITED', 'HTTP 429: too many requests')).toMatchObject({
       failure_category: 'rate_limit',
+      failure_detail: 'rate_limit_429',
       retryable: true,
       user_action: 'retry',
     });
@@ -214,7 +244,22 @@ describe('classifyRunFailure', () => {
   it('maps upstream failures to retry guidance', () => {
     expect(classify('UPSTREAM_UNAVAILABLE', 'HTTP 503 upstream unavailable')).toMatchObject({
       failure_category: 'upstream_unavailable',
+      failure_detail: 'upstream_5xx',
       failure_stage: 'first_token_wait',
+      retryable: true,
+      user_action: 'retry',
+    });
+  });
+
+  it('maps stream disconnects to upstream detail', () => {
+    expect(
+      classify(
+        'AGENT_EXECUTION_FAILED',
+        'Reconnecting... 1/5 (stream disconnected before completion: tls handshake eof)',
+      ),
+    ).toMatchObject({
+      failure_category: 'upstream_unavailable',
+      failure_detail: 'stream_disconnected',
       retryable: true,
       user_action: 'retry',
     });
@@ -225,6 +270,7 @@ describe('classifyRunFailure', () => {
       classify('AMR_INSUFFICIENT_BALANCE', 'insufficient wallet balance'),
     ).toMatchObject({
       failure_category: 'insufficient_balance',
+      failure_detail: 'amr_insufficient_balance',
       retryable: false,
       user_action: 'recharge',
     });
@@ -233,6 +279,7 @@ describe('classifyRunFailure', () => {
   it('maps unavailable model errors to switch-model guidance', () => {
     expect(classify('AMR_MODEL_UNAVAILABLE', 'model is not available')).toMatchObject({
       failure_category: 'model_unavailable',
+      failure_detail: 'model_not_found',
       failure_stage: 'model_select',
       retryable: false,
       user_action: 'switch_model',
@@ -242,6 +289,7 @@ describe('classifyRunFailure', () => {
   it('maps prompt-size failures to reduce-context guidance', () => {
     expect(classify('AGENT_PROMPT_TOO_LARGE', 'context window exceeded')).toMatchObject({
       failure_category: 'prompt_too_large',
+      failure_detail: 'prompt_too_large',
       failure_stage: 'prompt_send',
       retryable: false,
       user_action: 'reduce_context',
@@ -257,6 +305,7 @@ describe('classifyRunFailure', () => {
       ),
     ).toMatchObject({
       failure_category: 'empty_output',
+      failure_detail: 'empty_output',
       retryable: true,
       user_action: 'retry',
     });
@@ -278,6 +327,7 @@ describe('classifyRunFailure', () => {
       }),
     ).toMatchObject({
       failure_category: 'timeout',
+      failure_detail: 'inactivity_timeout',
       failure_stage: 'first_token_wait',
       retryable: true,
       user_action: 'retry',
@@ -309,6 +359,7 @@ describe('classifyRunFailure', () => {
       }),
     ).toMatchObject({
       failure_category: 'timeout',
+      failure_detail: 'inactivity_timeout',
       failure_stage: 'first_token_wait',
       retryable: false,
       user_action: 'none',
@@ -339,6 +390,7 @@ describe('classifyRunFailure', () => {
       }),
     ).toMatchObject({
       failure_category: 'tool_error',
+      failure_detail: 'tool_error',
       failure_stage: 'tool_execution',
       retryable: true,
       user_action: 'retry',
@@ -348,15 +400,32 @@ describe('classifyRunFailure', () => {
   it('keeps process exits as an explicit fallback category', () => {
     expect(classify('AGENT_EXIT_1', 'process exited with code 1')).toMatchObject({
       failure_category: 'process_exit',
+      failure_detail: 'exit_code',
       failure_stage: 'child_close',
       retryable: false,
       user_action: 'none',
     });
   });
 
+  it('adds process-exit details for spawn and protocol failures', () => {
+    expect(classify('AGENT_EXECUTION_FAILED', 'spawn failed: spawn ENOEXEC')).toMatchObject({
+      failure_category: 'process_exit',
+      failure_detail: 'spawn_enoexec',
+    });
+    expect(classify('AGENT_EXECUTION_FAILED', 'json-rpc id 2: Internal error')).toMatchObject({
+      failure_category: 'process_exit',
+      failure_detail: 'agent_protocol_error',
+    });
+    expect(classify('AGENT_EXECUTION_FAILED', 'stdin: write EOF')).toMatchObject({
+      failure_category: 'process_exit',
+      failure_detail: 'stdin_write_eof',
+    });
+  });
+
   it('falls back to unknown when no meaningful signal is available', () => {
     expect(classify('SOMETHING_NEW', '')).toMatchObject({
       failure_category: 'unknown',
+      failure_detail: 'unknown',
       failure_stage: 'finalize',
       retryable: false,
       user_action: 'none',

@@ -200,6 +200,41 @@ export type TrackingRunFailureCategory =
   | 'process_exit'
   | 'user_cancel'
   | 'unknown';
+export type TrackingRunFailureDetail =
+  | 'auth_required'
+  | 'stale_profile'
+  | 'refresh_token_reused'
+  | 'missing_api_key'
+  | 'hard_quota'
+  | 'rate_limit_429'
+  | 'amr_insufficient_balance'
+  | 'model_not_found'
+  | 'model_not_supported'
+  | 'model_disabled'
+  | 'cli_version_incompatible'
+  | 'prompt_too_large'
+  | 'upstream_5xx'
+  | 'stream_disconnected'
+  | 'network_error'
+  | 'provider_high_demand'
+  | 'provider_routing_error'
+  | 'inactivity_timeout'
+  | 'timeout'
+  | 'empty_output'
+  | 'tool_error'
+  | 'cli_not_installed'
+  | 'spawn_failed'
+  | 'spawn_enoexec'
+  | 'spawn_ebadf'
+  | 'spawn_eperm'
+  | 'stdin_write_eof'
+  | 'agent_protocol_error'
+  | 'qoder_stop_sequence'
+  | 'exit_code'
+  | 'terminated_unknown'
+  | 'execution_failed'
+  | 'user_cancelled'
+  | 'unknown';
 export type TrackingRunFailureStage =
   | 'preflight'
   | 'spawn'
@@ -1820,6 +1855,7 @@ export interface RunFinishedProps extends Omit<RunCreatedProps, 'area'> {
   result: TrackingRunResult;
   error_code?: string;
   failure_category?: TrackingRunFailureCategory;
+  failure_detail?: TrackingRunFailureDetail;
   failure_stage?: TrackingRunFailureStage;
   retryable?: boolean;
   user_action?: TrackingRunFailureUserAction;

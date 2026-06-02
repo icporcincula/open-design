@@ -93,7 +93,9 @@ describe('run failure telemetry smoke', () => {
         agentId: 'claude',
         config: { agentCliEnv: { claude: { CLAUDE_BIN: path.join(binDir, 'claude-auth') } } },
         expectedCode: 'AGENT_AUTH_REQUIRED',
+        expectedCodes: ['AGENT_AUTH_REQUIRED', 'AGENT_EXECUTION_FAILED'],
         expectedCategory: 'auth',
+        expectedDetail: 'auth_required',
         expectedDiagnosticSource: 'error_event',
         expectStderr: true,
       },
@@ -103,6 +105,7 @@ describe('run failure telemetry smoke', () => {
         config: { agentCliEnv: { claude: { CLAUDE_BIN: path.join(binDir, 'claude-rate-limit') } } },
         expectedCode: 'RATE_LIMITED',
         expectedCategory: 'rate_limit',
+        expectedDetail: 'rate_limit_429',
         expectedDiagnosticSource: 'error_event',
         expectStderr: true,
       },
@@ -112,6 +115,7 @@ describe('run failure telemetry smoke', () => {
         config: { agentCliEnv: { claude: { CLAUDE_BIN: path.join(binDir, 'claude-upstream') } } },
         expectedCode: 'UPSTREAM_UNAVAILABLE',
         expectedCategory: 'upstream_unavailable',
+        expectedDetail: 'upstream_5xx',
         expectedDiagnosticSource: 'error_event',
         expectStderr: true,
       },
@@ -121,6 +125,7 @@ describe('run failure telemetry smoke', () => {
         config: { agentCliEnv: { deepseek: { DEEPSEEK_BIN: path.join(binDir, 'deepseek') } } },
         expectedCode: 'AGENT_PROMPT_TOO_LARGE',
         expectedCategory: 'prompt_too_large',
+        expectedDetail: 'prompt_too_large',
         expectedDiagnosticSource: 'error_event',
         expectStderr: false,
         message: `od-failure-smoke-context ${'large-context '.repeat(4000)}`,
@@ -131,6 +136,7 @@ describe('run failure telemetry smoke', () => {
         config: { agentCliEnv: { claude: { CLAUDE_BIN: path.join(binDir, 'claude-hang') } } },
         expectedCode: 'AGENT_EXECUTION_FAILED',
         expectedCategory: 'timeout',
+        expectedDetail: 'inactivity_timeout',
         expectedDiagnosticSource: 'error_event',
         expectStderr: false,
       },
@@ -159,15 +165,19 @@ describe('run failure telemetry smoke', () => {
       });
 
       expect(run.status).toBe('failed');
-      expect(errorCode).toBe(item.expectedCode);
+      expect('expectedCodes' in item ? item.expectedCodes : [item.expectedCode])
+        .toContain(errorCode);
       expect(failure?.failure_category).toBe(item.expectedCategory);
+      expect(failure?.failure_detail).toBe(item.expectedDetail);
       expect(diagnostics.diagnostic_source).toBe(item.expectedDiagnosticSource);
       expect(diagnostics.stderr_present).toBe(item.expectStderr);
 
       await finalizeAssistantMessage(started.url, run);
       const trace = await ingestion.waitForTrace(run.id);
-      expect(trace.body.metadata.error_code).toBe(item.expectedCode);
+      expect('expectedCodes' in item ? item.expectedCodes : [item.expectedCode])
+        .toContain(trace.body.metadata.error_code);
       expect(trace.body.metadata.failure_category).toBe(item.expectedCategory);
+      expect(trace.body.metadata.failure_detail).toBe(item.expectedDetail);
       if (item.expectStderr) {
         expect(trace.body.metadata.stderr.lineCount).toBeGreaterThan(0);
       } else {

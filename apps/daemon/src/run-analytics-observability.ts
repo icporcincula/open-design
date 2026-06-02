@@ -42,6 +42,12 @@ export interface RunTimingAnalytics {
   total_duration_ms: number;
 }
 
+export function hasExplicitRequestedModelForAnalytics(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const model = value.trim();
+  return model.length > 0 && model !== 'default';
+}
+
 function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? value
@@ -98,7 +104,7 @@ export function scanRunEventsForUsageAnalytics(
   let cacheCreationInputTokens: number | undefined;
   let cacheTokenSource: RunUsageAnalytics['cache_token_source'] = 'unavailable';
   let agentReportedModel: string | null = null;
-  const needAgentModel = !(typeof reqBodyModel === 'string' && reqBodyModel.trim());
+  const needAgentModel = !hasExplicitRequestedModelForAnalytics(reqBodyModel);
   let haveUsageTokens = false;
 
   for (let i = events.length - 1; i >= 0; i -= 1) {
