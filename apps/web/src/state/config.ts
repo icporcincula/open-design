@@ -197,6 +197,20 @@ export const KNOWN_PROVIDERS: KnownProvider[] = [
     model: 'mimo-v2.5-pro',
     models: ['mimo-v2.5-pro'],
   },
+  {
+    label: 'LM Studio (local)',
+    protocol: 'openai',
+    baseUrl: 'http://localhost:1234/v1',
+    model: '',
+    models: [],
+  },
+  {
+    label: 'Ollama (local)',
+    protocol: 'openai',
+    baseUrl: 'http://localhost:11434/v1',
+    model: '',
+    models: [],
+  },
 ];
 
 function normalizePet(input: Partial<PetConfig> | undefined): PetConfig {

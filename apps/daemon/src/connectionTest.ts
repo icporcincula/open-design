@@ -403,11 +403,13 @@ function extractOpenAIMessageText(data: unknown): string {
   const choices = (data as { choices?: unknown }).choices;
   if (!Array.isArray(choices) || choices.length === 0) return '';
   const first = choices[0] as
-    | { message?: { content?: unknown }; text?: unknown }
+    | { message?: { content?: unknown; reasoning_content?: unknown }; text?: unknown }
     | undefined;
-  if (typeof first?.message?.content === 'string') return first.message.content;
-  if (typeof first?.text === 'string') return first.text;
-  return '';
+  let text = '';
+  if (typeof first?.message?.reasoning_content === 'string') text += first.message.reasoning_content;
+  if (typeof first?.message?.content === 'string') text += first.message.content;
+  if (!text && typeof first?.text === 'string') text = first.text;
+  return text;
 }
 
 export async function testProviderConnection(

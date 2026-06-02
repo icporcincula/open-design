@@ -6164,9 +6164,11 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const choices = data?.choices;
     if (!Array.isArray(choices) || choices.length === 0) return '';
     const first = choices[0];
-    if (typeof first?.delta?.content === 'string') return first.delta.content;
-    if (typeof first?.text === 'string') return first.text;
-    return '';
+    let text = '';
+    if (typeof first?.delta?.reasoning_content === 'string') text += first.delta.reasoning_content;
+    if (typeof first?.delta?.content === 'string') text += first.delta.content;
+    if (!text && typeof first?.text === 'string') text = first.text;
+    return text;
   };
 
   const extractStreamErrorMessage = (data) => {
@@ -6311,12 +6313,12 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const proxyBody = req.body || {};
     const { baseUrl, apiKey, model, systemPrompt, messages, maxTokens } =
       proxyBody;
-    if (!baseUrl || !apiKey || !model) {
+    if (!baseUrl || !model) {
       return sendApiError(
         res,
         400,
         'BAD_REQUEST',
-        'baseUrl, apiKey, and model are required',
+        'baseUrl and model are required',
       );
     }
 
@@ -6351,12 +6353,11 @@ export async function startServer({ port = 7456, host = process.env.OD_BIND_HOST
     const sse = createSseResponse(res);
     sse.send('start', { model });
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify(payload),
         redirect: 'error',
       });
