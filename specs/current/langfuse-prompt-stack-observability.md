@@ -16,12 +16,20 @@ tokens, local paths, or attachment content.
 The target outcome is a trace that can answer:
 
 - What user request triggered this run?
+- What exact instruction/system sections were composed for the model, after
+  redaction and within bounded capture limits?
 - Which prompt sections and runtime flags were active?
 - Which skill, design system, plugin stage, model, release, and prompt-stack
   fingerprint produced the output?
 - Did discovery ask a form, skip a form, or suppress a repeated form?
 - Which production traces should become eval dataset items?
 - Which automated or human scores explain regressions over time?
+
+The primary product goal for v1 is fast prompt-behavior debugging from a
+Langfuse trace. Evaluation aggregation is still important, but metadata alone
+is not enough for the first debugging target. A reviewer should be able to open
+the generation observation and inspect the redacted instruction stack that the
+daemon actually sent to the agent.
 
 ## Current Behavior
 
@@ -92,6 +100,7 @@ This spec does not:
 - Move Open Design system prompts into Langfuse Prompt Management.
 - Require network prompt fetching before agent spawn.
 - Replace trace input with the full composed prompt.
+- Upload raw, unredacted system or composed prompt content.
 - Upload raw tool tokens, API keys, local auth material, OAuth tokens, or MCP
   bearer tokens.
 - Upload raw attachment contents by default.
@@ -114,27 +123,45 @@ Rationale:
 
 ### Generation Input
 
-Open Design should move toward generation-level LLM invocation visibility in
-two stages:
+Open Design should make generation-level LLM invocation visibility useful for
+debugging in the first implementation phase.
 
-1. Default: keep `generation.input` as the user prompt but attach
-   `promptStack` metadata.
-2. Opt-in or safe-content mode: set `generation.input` to a structured object
-   representing the redacted LLM invocation:
+The baseline keeps `trace.input` readable as the user prompt. The generation
+observation then gets both metadata and, when debug capture is enabled, a
+bounded redacted representation of the prompt sections in the order they were
+composed.
 
 ```json
 {
   "format": "open-design-composed-prompt",
   "streamFormat": "stream-json",
   "userPrompt": "redacted current user prompt",
-  "composedPromptPreview": "bounded redacted preview",
-  "promptStackHash": "sha256:..."
+  "promptStackHash": "sha256:...",
+  "sections": [
+    {
+      "name": "formOverride",
+      "present": true,
+      "bytes": 1840,
+      "sha256": "sha256:...",
+      "redactedContent": "## OVERRIDE ...",
+      "truncated": false
+    },
+    {
+      "name": "daemonSystemPrompt",
+      "present": true,
+      "bytes": 24120,
+      "sha256": "sha256:...",
+      "redactedContent": "bounded redacted system prompt content",
+      "truncated": true
+    }
+  ],
+  "composedPromptPreview": "bounded redacted final prompt preview"
 }
 ```
 
-The default stage avoids a sudden content-volume and privacy change. The opt-in
-stage aligns more closely with Langfuse's generation model once redaction and
-capture controls are proven.
+Debug capture is controlled and bounded, but it is not postponed to a later
+evaluation phase. Without section content, Langfuse can identify the prompt
+stack hash that failed but cannot explain which instruction caused the behavior.
 
 ### Prompt Stack Metadata
 
@@ -156,6 +183,9 @@ interface PromptStackTelemetry {
     redactedPreview?: string;
     redactedPreviewBytes?: number;
     redactedPreviewTruncated?: boolean;
+    redactedContent?: string;
+    redactedContentBytes?: number;
+    redactedContentTruncated?: boolean;
   };
   daemonSystemPrompt: {
     bytes: number;
@@ -186,6 +216,9 @@ interface PromptSectionTelemetry {
   bytes: number;
   sha256?: string;
   redactionApplied?: boolean;
+  redactedContent?: string;
+  redactedContentBytes?: number;
+  redactedContentTruncated?: boolean;
 }
 
 interface PromptStackFlags {
@@ -218,14 +251,31 @@ interface PromptRoutingTelemetry {
 }
 
 interface PromptPrivacyTelemetry {
-  contentCapture: 'off' | 'redacted-preview' | 'redacted-generation-input';
+  contentCapture:
+    | 'off'
+    | 'redacted-section-content'
+    | 'redacted-composed-content'
+    | 'redacted-generation-input';
   redactionVersion: string;
-  maxPreviewBytes: number;
+  maxSectionBytes: number;
+  maxComposedBytes: number;
   localPaths: 'redacted' | 'hashed' | 'omitted';
   attachments: 'metadata-only' | 'redacted-preview';
   toolTokens: 'omitted';
 }
 ```
+
+Capture modes:
+
+- `off`: hashes, bytes, section presence, routing, and flags only.
+- `redacted-section-content`: include bounded redacted content for instruction
+  sections. This is the recommended debug default because it shows the system
+  prompt stack without uploading attachment bodies.
+- `redacted-composed-content`: include a bounded redacted final composed prompt
+  preview in addition to section content.
+- `redacted-generation-input`: set generation input to the structured redacted
+  invocation object. This is the most Langfuse-native debug view and should
+  remain opt-in until reviewed.
 
 ### Flat Metadata for Metrics
 
@@ -242,7 +292,7 @@ compact top-level metadata keys:
   "promptDiscoveryState": "turn1-discovery",
   "promptFormOverride": "none",
   "promptMediaSurface": false,
-  "promptContentCapture": "off",
+  "promptContentCapture": "redacted-section-content",
   "skillId": "landing-page",
   "designSystemId": "acme",
   "agent": "claude",
@@ -280,11 +330,15 @@ Rules:
   `/Users/<name>/Documents/...` can identify a person or repo.
 - Report attachment counts, file extensions, size buckets, and hashes before
   reporting any attachment text.
-- Bound preview size. Initial default: 8 KiB redacted composed prompt preview,
-  behind an explicit content-capture setting.
+- Bound captured content. Initial debug recommendation: up to 16 KiB per
+  redacted instruction section and up to 64 KiB for a redacted composed prompt
+  preview when composed capture is explicitly enabled.
 - Never emit prompt previews when Langfuse content capture is disabled.
 - Add tests with fake API keys, bearer tokens, OD tool tokens, emails, local
   paths, and attachment names to prove previews are redacted.
+- Prefer section-level content over final composed content for the default
+  debug view. Section boundaries make prompt-order and prompt-conflict issues
+  easier to inspect, and they reduce accidental capture of user attachments.
 
 ## Trace Shape
 
@@ -294,7 +348,7 @@ Recommended observation tree:
 flowchart TD
   T["trace: open-design-turn\ninput = user prompt\nmetadata = compact prompt dimensions"]
   A["span: agent-run\ninput = user prompt\nmetadata = run status and promptStack summary"]
-  G["generation: llm\ninput = user prompt or redacted invocation\nmetadata = full promptStack diagnostics"]
+  G["generation: llm\ninput = user prompt or redacted invocation\nmetadata = promptStack + redacted section content"]
   TS["tool spans\ninput/output = existing bounded redacted content"]
   AS["event: artifact-summary"]
   ES["event: evaluator/scores\nwhen local eval runner reports back"]
@@ -307,8 +361,9 @@ flowchart TD
 ```
 
 Generation metadata should include the richest prompt diagnostics because it is
-the object closest to the LLM call. Trace metadata should include only fields
-needed for browsing, filtering, and dashboards.
+the object closest to the LLM call. For prompt debugging, the generation view
+must show redacted section content when capture is enabled. Trace metadata
+should include only fields needed for browsing, filtering, and dashboards.
 
 ## Evaluation Loop
 
@@ -366,7 +421,7 @@ Each score should include metadata linking it to:
 
 ## Implementation Plan
 
-### Phase 1: Metadata-Only Prompt Diagnostics
+### Phase 1: Debug-Ready Prompt Diagnostics
 
 Add a daemon-local prompt telemetry builder after `composed` is built and before
 the agent is spawned.
@@ -382,7 +437,9 @@ returns:
 - nested `promptStack` diagnostics;
 - flat metric dimensions;
 - redaction status;
-- optional redacted preview when enabled.
+- bounded redacted section content when debug capture is enabled;
+- optional bounded redacted composed prompt preview when composed capture is
+  explicitly enabled.
 
 Store the result on the in-memory run record and thread it through:
 
@@ -390,20 +447,23 @@ Store the result on the in-memory run record and thread it through:
 - `apps/daemon/src/langfuse-bridge.ts`
 - `apps/daemon/src/langfuse-trace.ts`
 
-Do not change top-level `trace.input` in this phase.
+Do not change top-level `trace.input` in this phase. Generation metadata should
+be sufficient to debug prompt behavior from the Langfuse UI.
 
-### Phase 2: Safe Generation Input Preview
+### Phase 2: Structured Generation Input
 
-Add an explicit content-capture mode for generation input:
+Promote the redacted prompt invocation from generation metadata into
+`generation.input` for users who want the Langfuse generation panel to show the
+LLM call in a first-class way.
 
-- `off`: current behavior plus metadata only.
-- `redacted-preview`: metadata contains bounded redacted composed preview.
-- `redacted-generation-input`: generation input becomes a structured redacted
-  invocation object.
+The structured input should contain the same section array, hashes, byte counts,
+and capture flags from Phase 1. It should not include raw unredacted prompt
+content.
 
 This may be configured through existing Langfuse telemetry config or a new
-daemon setting. The default remains `off` unless product/security review
-approves preview capture.
+daemon setting. Product/security review should decide whether any packaged
+default enables `redacted-section-content`; local development and internal
+debug sessions should be able to opt in.
 
 ### Phase 3: Evaluation Dataset and Scores
 
@@ -442,8 +502,13 @@ Phase 1 tests:
   dimensions.
 - Unit-test redaction with fake credentials, bearer tokens, OD tool tokens,
   emails, local paths, linked dirs, and attachment names.
+- Unit-test bounded redacted section capture for daemon system prompt,
+  form-answer override, runtime tool prompt, client system prompt, cwd/linked
+  dir hints, user request, and prompt image paths.
 - Bridge tests assert `promptStack` appears in Langfuse trace and generation
   metadata.
+- Bridge tests assert redacted section content appears only when content capture
+  is enabled.
 - Existing tests continue to assert top-level `trace.input` is the user prompt.
 - Chat-route tests cover discovery, skip-discovery, form-answer overrides,
   media surfaces, active skill, active design system, and plugin snapshot
@@ -451,9 +516,9 @@ Phase 1 tests:
 
 Phase 2 tests:
 
-- Verify content-capture `off` never sends previews.
-- Verify preview is bounded and redacted.
 - Verify structured generation input is emitted only in explicit opt-in mode.
+- Verify structured generation input contains no raw tokens, credentials, local
+  user paths, or attachment bodies.
 
 Phase 3 tests:
 
@@ -469,7 +534,9 @@ Phase 3 tests:
   secret to avoid cross-install prompt correlation?
 - Which local path representation is most useful without leaking identity:
   omitted, basename only, extension bucket, or salted hash?
-- Should generation input move to structured redacted invocation in v1, or wait
-  for one release of metadata-only telemetry?
+- Should local development default to `redacted-section-content`, while
+  packaged/production defaults to `off`?
+- Should the debug capture control be global, project-scoped, or per-run so a
+  user can turn it on only for one failing session?
 - Which traces should be sampled into human annotation queues first: failures,
   low user feedback, high token cost, or new prompt-stack hashes?
