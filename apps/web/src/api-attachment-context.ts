@@ -35,7 +35,12 @@ export async function historyWithApiAttachmentContext(
   const attachments = current?.attachments ?? [];
   if (!current || attachments.length === 0) return history;
 
-  const context = await buildApiAttachmentContext(projectId, attachments, projectFiles, options);
+  const context = await buildApiAttachmentContext(
+    projectId,
+    sortAttachmentsByUserOrder(attachments),
+    projectFiles,
+    options,
+  );
   if (!context) return history;
 
   return history.map((message) =>
@@ -43,6 +48,22 @@ export async function historyWithApiAttachmentContext(
       ? { ...message, content: `${message.content}${context}` }
       : message,
   );
+}
+
+function sortAttachmentsByUserOrder(attachments: ChatAttachment[]): ChatAttachment[] {
+  return attachments
+    .map((attachment, index) => ({ attachment, index }))
+    .sort((a, b) => {
+      const aOrder = typeof a.attachment.order === 'number' && Number.isFinite(a.attachment.order)
+        ? a.attachment.order
+        : a.index;
+      const bOrder = typeof b.attachment.order === 'number' && Number.isFinite(b.attachment.order)
+        ? b.attachment.order
+        : b.index;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.attachment);
 }
 
 async function buildApiAttachmentContext(

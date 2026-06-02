@@ -1,6 +1,8 @@
 import {
   Fragment,
   memo,
+  useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -223,6 +225,7 @@ function pickStarters(
 interface Props {
   messages: ChatMessage[];
   streaming: boolean;
+  loading?: boolean;
   error: string | null;
   projectId: string | null;
   sessionMode?: ChatSessionMode;
@@ -349,6 +352,16 @@ interface Props {
 
 type Tab = 'chat' | 'comments';
 
+const CHAT_MESSAGE_VIRTUALIZE_THRESHOLD = 80;
+const CHAT_MESSAGE_OVERSCAN_PX = 900;
+const CHAT_VIRTUAL_ROW_GAP_PX = 14;
+const CHAT_VIRTUAL_MIN_ROW_HEIGHT = 36;
+const CHAT_VIRTUAL_DEFAULT_VIEWPORT_PX = 640;
+const CHAT_VIRTUAL_INITIAL_TAIL_ROWS = 16;
+const CONVERSATION_ROW_HEIGHT_PX = 38;
+const CONVERSATION_VIRTUALIZE_THRESHOLD = 36;
+const CONVERSATION_OVERSCAN_ROWS = 8;
+
 interface QueuedSendItem {
   id: string;
   prompt: string;
@@ -367,6 +380,7 @@ interface QueuedSendUpdate {
 export function ChatPane({
   messages,
   streaming,
+  loading = false,
   sendDisabled = false,
   queuedItems = [],
   error,
