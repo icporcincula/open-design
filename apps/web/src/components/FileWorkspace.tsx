@@ -579,6 +579,20 @@ export function FileWorkspace({
     if (!openRequest) return;
     const name = openRequest.name;
     if (!name) return;
+    if (name === DESIGN_FILES_TAB || name === DESIGN_SYSTEM_TAB) {
+      const nextActive =
+        name === DESIGN_SYSTEM_TAB && !designSystemProject
+          ? DESIGN_FILES_TAB
+          : name;
+      onTabsStateChange(workspaceTabsState(persistedTabs, nextActive));
+      setActiveTab(nextActive);
+      return;
+    }
+    if (isBrowserTabId(name) && browserTabs.some((tab) => tab.id === name)) {
+      onTabsStateChange(workspaceTabsState(persistedTabs, name));
+      setActiveTab(name);
+      return;
+    }
     onTabsStateChange(workspaceTabsState(
       persistedTabs.includes(name) ? persistedTabs : [...persistedTabs, name],
       name,

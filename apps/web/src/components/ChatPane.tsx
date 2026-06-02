@@ -268,6 +268,8 @@ interface Props {
   // FileWorkspace's openRequest. Tool cards, attachment chips, and
   // produced-file chips all call this.
   onRequestOpenFile?: (name: string) => void;
+  onRequestPluginDetails?: (pluginId: string) => void;
+  onRequestDesignSystemDetails?: (system: DesignSystemSummary) => void;
   onRequestPluginFolderAgentAction?: (
     relativePath: string,
     action: PluginFolderAgentAction,
@@ -406,6 +408,8 @@ export function ChatPane({
   onReorderQueuedSends,
   onSendQueuedNow,
   onRequestOpenFile,
+  onRequestPluginDetails,
+  onRequestDesignSystemDetails,
   onRequestPluginFolderAgentAction,
   activePluginActionPaths,
   hiddenPluginActionPaths,
@@ -1241,6 +1245,8 @@ export function ChatPane({
                 projectFiles={projectFiles}
                 projectFileNames={projectFileNames}
                 onRequestOpenFile={onRequestOpenFile}
+                onRequestPluginDetails={onRequestPluginDetails}
+                onRequestDesignSystemDetails={onRequestDesignSystemDetails}
                 onRequestPluginFolderAgentAction={onRequestPluginFolderAgentAction}
                 activePluginActionPaths={activePluginActionPaths}
                 hiddenPluginActionPaths={hiddenPluginActionPaths}
@@ -1480,6 +1486,8 @@ function ChatRows({
   projectFiles,
   projectFileNames,
   onRequestOpenFile,
+  onRequestPluginDetails,
+  onRequestDesignSystemDetails,
   onRequestPluginFolderAgentAction,
   activePluginActionPaths,
   hiddenPluginActionPaths,
@@ -1509,6 +1517,8 @@ function ChatRows({
   projectFiles: ProjectFile[];
   projectFileNames?: Set<string>;
   onRequestOpenFile?: (name: string) => void;
+  onRequestPluginDetails?: (pluginId: string) => void;
+  onRequestDesignSystemDetails?: (system: DesignSystemSummary) => void;
   onRequestPluginFolderAgentAction?: (relativePath: string, action: PluginFolderAgentAction) => void;
   activePluginActionPaths?: Set<string>;
   hiddenPluginActionPaths?: Set<string>;
@@ -1558,6 +1568,8 @@ function ChatRows({
           projectId={projectId}
           projectFileNames={projectFileNames}
           onRequestOpenFile={onRequestOpenFile}
+          onRequestPluginDetails={onRequestPluginDetails}
+          onRequestDesignSystemDetails={onRequestDesignSystemDetails}
           t={t}
           activePluginSnapshot={
             m.id === firstUserMessageId
@@ -2612,6 +2624,8 @@ function UserMessageImpl({
   projectId,
   projectFileNames,
   onRequestOpenFile,
+  onRequestPluginDetails,
+  onRequestDesignSystemDetails,
   t,
   activePluginSnapshot,
   activeDesignSystem,
@@ -2620,6 +2634,8 @@ function UserMessageImpl({
   projectId: string | null;
   projectFileNames?: Set<string>;
   onRequestOpenFile?: (name: string) => void;
+  onRequestPluginDetails?: (pluginId: string) => void;
+  onRequestDesignSystemDetails?: (system: DesignSystemSummary) => void;
   t: TranslateFn;
   activePluginSnapshot?: AppliedPluginSnapshot | null;
   activeDesignSystem?: DesignSystemSummary | null;
@@ -2669,13 +2685,24 @@ function UserMessageImpl({
             <MessageSessionModeChip mode={message.sessionMode} t={t} />
           ) : null}
           {workspaceItems.map((item) => (
-            <ActiveWorkspaceContextChip key={`${item.kind}:${item.id}`} item={item} />
+            <ActiveWorkspaceContextChip
+              key={`${item.kind}:${item.id}`}
+              item={item}
+              onOpen={onRequestOpenFile}
+            />
           ))}
           {messagePluginSnapshot ? (
-            <ActivePluginChip snapshot={messagePluginSnapshot} t={t} />
+            <ActivePluginChip
+              snapshot={messagePluginSnapshot}
+              t={t}
+              onOpenDetails={onRequestPluginDetails}
+            />
           ) : null}
           {activeDesignSystem ? (
-            <ActiveDesignSystemChip system={activeDesignSystem} />
+            <ActiveDesignSystemChip
+              system={activeDesignSystem}
+              onOpenDetails={onRequestDesignSystemDetails}
+            />
           ) : null}
         </div>
       ) : null}
@@ -2762,29 +2789,48 @@ function UserMessageImpl({
 function ActivePluginChip({
   snapshot,
   t: _t,
+  onOpenDetails,
 }: {
   snapshot: AppliedPluginSnapshot;
   t: TranslateFn;
+  onOpenDetails?: (pluginId: string) => void;
 }) {
   const title = snapshot.pluginTitle ?? snapshot.pluginId;
   const version = snapshot.pluginVersion;
   const taskKind = snapshot.taskKind;
+  const content = (
+    <>
+      <span className="msg-plugin-chip__dot" aria-hidden />
+      <span className="msg-plugin-chip__label">
+        <span className="msg-plugin-chip__kind">Plugin</span>
+        <span className="msg-plugin-chip__title">{title}</span>
+        <span className="msg-plugin-chip__version">@{version}</span>
+      </span>
+      {taskKind ? (
+        <span className="msg-plugin-chip__task">{taskKind}</span>
+      ) : null}
+    </>
+  );
   // One clean chip per message — the plugin's full resolved context still
   // rides the run via the persisted snapshot; we no longer fan it out into
   // per-category (design-system / asset / skill) chips here.
   return (
     <div className="msg-plugin-context" data-testid="msg-plugin-context">
-      <div className="msg-plugin-chip" data-testid="msg-plugin-chip">
-        <span className="msg-plugin-chip__dot" aria-hidden />
-        <span className="msg-plugin-chip__label">
-          <span className="msg-plugin-chip__kind">Plugin</span>
-          <span className="msg-plugin-chip__title">{title}</span>
-          <span className="msg-plugin-chip__version">@{version}</span>
-        </span>
-        {taskKind ? (
-          <span className="msg-plugin-chip__task">{taskKind}</span>
-        ) : null}
-      </div>
+      {onOpenDetails ? (
+        <button
+          type="button"
+          className="msg-plugin-chip msg-plugin-chip--action"
+          data-testid="msg-plugin-chip"
+          title={title}
+          onClick={() => onOpenDetails(snapshot.pluginId)}
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="msg-plugin-chip" data-testid="msg-plugin-chip">
+          {content}
+        </div>
+      )}
     </div>
   );
 }
@@ -2813,11 +2859,13 @@ function MessageSessionModeChip({
 
 function ActiveDesignSystemChip({
   system,
+  onOpenDetails,
 }: {
   system: DesignSystemSummary;
+  onOpenDetails?: (system: DesignSystemSummary) => void;
 }) {
-  return (
-    <div className="msg-plugin-chip msg-plugin-chip--design-system" data-testid="msg-design-system-chip">
+  const content = (
+    <>
       <span className="msg-plugin-chip__dot" aria-hidden />
       <span className="msg-plugin-chip__label">
         <span className="msg-plugin-chip__kind">Design System</span>
@@ -2826,17 +2874,41 @@ function ActiveDesignSystemChip({
       {system.category ? (
         <span className="msg-plugin-chip__task">{system.category}</span>
       ) : null}
-    </div>
+    </>
+  );
+  if (!onOpenDetails) {
+    return (
+      <div className="msg-plugin-chip msg-plugin-chip--design-system" data-testid="msg-design-system-chip">
+        {content}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="msg-plugin-chip msg-plugin-chip--design-system msg-plugin-chip--action"
+      data-testid="msg-design-system-chip"
+      title={system.title}
+      onClick={() => onOpenDetails(system)}
+    >
+      {content}
+    </button>
   );
 }
 
-function ActiveWorkspaceContextChip({ item }: { item: WorkspaceContextItem }) {
-  return (
-    <div
-      className={`msg-plugin-chip msg-plugin-chip--workspace msg-plugin-chip--workspace-${item.kind}`}
-      data-testid="msg-workspace-context-chip"
-      title={workspaceContextTitle(item)}
-    >
+const WORKSPACE_DESIGN_FILES_TAB = '__design_files__';
+const WORKSPACE_DESIGN_SYSTEM_TAB = '__design_system__';
+
+function ActiveWorkspaceContextChip({
+  item,
+  onOpen,
+}: {
+  item: WorkspaceContextItem;
+  onOpen?: (name: string) => void;
+}) {
+  const target = workspaceContextOpenTarget(item);
+  const content = (
+    <>
       <span className="msg-plugin-chip__icon" aria-hidden>
         <Icon name={workspaceContextIcon(item)} size={12} />
       </span>
@@ -2844,8 +2916,40 @@ function ActiveWorkspaceContextChip({ item }: { item: WorkspaceContextItem }) {
         <span className="msg-plugin-chip__kind">Current</span>
         <span className="msg-plugin-chip__title">{item.label}</span>
       </span>
-    </div>
+    </>
   );
+  if (!target || !onOpen) {
+    return (
+      <div
+        className={`msg-plugin-chip msg-plugin-chip--workspace msg-plugin-chip--workspace-${item.kind}`}
+        data-testid="msg-workspace-context-chip"
+        title={workspaceContextTitle(item)}
+      >
+        {content}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`msg-plugin-chip msg-plugin-chip--workspace msg-plugin-chip--workspace-${item.kind} msg-plugin-chip--action`}
+      data-testid="msg-workspace-context-chip"
+      title={workspaceContextTitle(item)}
+      onClick={() => onOpen(target)}
+    >
+      {content}
+    </button>
+  );
+}
+
+function workspaceContextOpenTarget(item: WorkspaceContextItem): string | null {
+  if (item.tabId) return item.tabId;
+  if (item.kind === 'design-files') return WORKSPACE_DESIGN_FILES_TAB;
+  if (item.kind === 'design-system') return WORKSPACE_DESIGN_SYSTEM_TAB;
+  if (item.kind === 'file' || item.kind === 'live-artifact') {
+    return item.path ?? item.label;
+  }
+  return null;
 }
 
 function workspaceContextIcon(item: WorkspaceContextItem): IconName {

@@ -523,6 +523,72 @@ describe('FileWorkspace launcher tab creation', () => {
       });
     });
   });
+
+  it('focuses a browser open request without adding it to file tabs', async () => {
+    const onTabsStateChange = vi.fn();
+    const browserTabs = [
+      {
+        id: '__browser__:1',
+        label: 'Browser 1',
+        title: 'Dribbble',
+        url: 'https://dribbble.com/',
+      },
+    ];
+
+    render(
+      <FileWorkspace
+        projectId="project-1"
+        projectKind="prototype"
+        files={[workspaceFile('cover.html')]}
+        liveArtifacts={[]}
+        onRefreshFiles={vi.fn()}
+        isDeck={false}
+        tabsState={{ tabs: ['cover.html'], active: 'cover.html', browserTabs }}
+        openRequest={{ name: '__browser__:1', nonce: 1 }}
+        onTabsStateChange={onTabsStateChange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onTabsStateChange).toHaveBeenCalledWith({
+        tabs: ['cover.html'],
+        active: '__browser__:1',
+        browserTabs,
+      });
+    });
+  });
+
+  it('focuses the design-system workspace tab without adding it to file tabs', async () => {
+    const onTabsStateChange = vi.fn();
+
+    render(
+      <FileWorkspace
+        projectId="project-1"
+        projectKind="prototype"
+        files={[workspaceFile('cover.html')]}
+        liveArtifacts={[]}
+        onRefreshFiles={vi.fn()}
+        isDeck={false}
+        tabsState={{ tabs: ['cover.html'], active: 'cover.html' }}
+        openRequest={{ name: '__design_system__', nonce: 1 }}
+        onTabsStateChange={onTabsStateChange}
+        designSystemProject={{
+          id: 'neutral-modern',
+          title: 'Neutral Modern',
+          category: 'Starter',
+          source: 'bundled',
+          updatedAt: 1,
+        } as never}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(onTabsStateChange).toHaveBeenCalledWith({
+        tabs: ['cover.html'],
+        active: '__design_system__',
+      });
+    });
+  });
 });
 
 describe('DesignFilesPanel plugin folders', () => {

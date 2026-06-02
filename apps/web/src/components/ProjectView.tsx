@@ -106,10 +106,11 @@ import {
   startGeneratedPluginShareTask,
   cacheTabsLocally,
   persistTabsToDaemonNow,
+  listPlugins,
   type SaveMessageOptions,
   waitGeneratedPluginShareTask,
 } from '../state/projects';
-import type { AppliedPluginSnapshot, ChatSessionMode, WorkspaceContextItem } from '@open-design/contracts';
+import type { AppliedPluginSnapshot, ChatSessionMode, InstalledPluginRecord, WorkspaceContextItem } from '@open-design/contracts';
 import type {
   AgentEvent,
   AgentInfo,
@@ -147,6 +148,8 @@ import { AvatarMenu } from './AvatarMenu';
 import { EntrySettingsMenu } from './EntrySettingsMenu';
 import { HandoffButton } from './HandoffButton';
 import { ProjectDesignSystemPicker } from './ProjectDesignSystemPicker';
+import { PluginDetailsModal } from './PluginDetailsModal';
+import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
 import { ChatPane } from './ChatPane';
 import type { ChatSendMeta } from './ChatComposer';
 import {
@@ -4640,6 +4643,10 @@ export function ProjectView({
   // the project switches away mid-flight to avoid setState-on-unmount.
   const [activePluginSnapshot, setActivePluginSnapshot] =
     useState<AppliedPluginSnapshot | null>(null);
+  const [contextPluginDetails, setContextPluginDetails] =
+    useState<InstalledPluginRecord | null>(null);
+  const [contextDesignSystemDetails, setContextDesignSystemDetails] =
+    useState<DesignSystemSummary | null>(null);
   useEffect(() => {
     const snapshotId = project.appliedPluginSnapshotId;
     if (!snapshotId) {
@@ -4655,6 +4662,13 @@ export function ProjectView({
       cancelled = true;
     };
   }, [project.appliedPluginSnapshotId]);
+  const handleOpenContextPluginDetails = useCallback(async (pluginId: string) => {
+    const normalizedId = pluginId.trim();
+    if (!normalizedId) return;
+    const plugins = await listPlugins({ includeHidden: true });
+    const record = plugins.find((plugin) => plugin.id === normalizedId);
+    if (record) setContextPluginDetails(record);
+  }, []);
   const chatDesignSystemSummary = useMemo(() => {
     if (activeDesignSystemSummary) return activeDesignSystemSummary;
     const designSystemName = activePluginSnapshot?.inputs?.designSystem;
@@ -5038,6 +5052,8 @@ export function ProjectView({
               onReorderQueuedSends={reorderCurrentConversationQueuedChatSends}
               onSendQueuedNow={sendQueuedChatSendNow}
               onRequestOpenFile={requestOpenFile}
+              onRequestPluginDetails={handleOpenContextPluginDetails}
+              onRequestDesignSystemDetails={setContextDesignSystemDetails}
               onRequestPluginFolderAgentAction={handlePluginFolderAgentAction}
               activePluginActionPaths={activePluginActionPaths}
               hiddenPluginActionPaths={hiddenAssistantPluginActionPaths}
@@ -5165,6 +5181,20 @@ export function ProjectView({
           onActiveContextChange={handleActiveWorkspaceContextChange}
         />
       </div>
+      {contextPluginDetails ? (
+        <PluginDetailsModal
+          record={contextPluginDetails}
+          onClose={() => setContextPluginDetails(null)}
+          onUse={() => setContextPluginDetails(null)}
+          isApplying={false}
+        />
+      ) : null}
+      {contextDesignSystemDetails ? (
+        <DesignSystemPreviewModal
+          system={contextDesignSystemDetails}
+          onClose={() => setContextDesignSystemDetails(null)}
+        />
+      ) : null}
       {projectActionsToast ? (
         <Toast
           message={projectActionsToast.message}

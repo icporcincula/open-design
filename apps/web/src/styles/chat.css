@@ -269,7 +269,7 @@
   gap: 6px;
   height: 26px;
   padding: 0 9px;
-  border-radius: var(--radius-pill);
+  border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
   background: color-mix(in srgb, var(--accent-tint) 72%, var(--bg));
   color: color-mix(in srgb, var(--accent) 72%, var(--text-strong));
@@ -298,13 +298,31 @@
   gap: 8px;
   margin: 0;
   padding: 4px 10px 4px 8px;
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--bg-subtle);
   border: 1px solid var(--border);
   font-size: 11.5px;
   line-height: 1;
   color: var(--text-muted);
   max-width: 100%;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+}
+.msg-plugin-chip--action {
+  cursor: pointer;
+  transition:
+    background-color 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    border-color 140ms cubic-bezier(0.23, 1, 0.32, 1),
+    box-shadow 140ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.msg-plugin-chip--action:hover {
+  background: var(--bg-panel);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+.msg-plugin-chip--action:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 38%, transparent);
+  outline-offset: 2px;
 }
 .msg-plugin-chip__dot {
   width: 6px;
@@ -388,6 +406,45 @@
 .msg.user .user-status-wrap {
   display: flex;
   justify-content: flex-end;
+}
+.msg.assistant .op-waiting {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  max-width: min(420px, 100%);
+  gap: 7px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 16%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-panel) 92%, var(--bg-subtle));
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-style: normal;
+}
+.msg.assistant .op-waiting-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+}
+.msg.assistant .op-waiting-label {
+  color: var(--text);
+  font-weight: 600;
+}
+.msg.assistant .op-waiting-detail {
+  max-width: 180px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg-subtle));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg.assistant .op-waiting-hint {
+  flex-basis: auto;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-style: italic;
 }
 .user-status-card {
   display: inline-flex;

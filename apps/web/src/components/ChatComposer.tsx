@@ -1402,72 +1402,97 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
     // entities keep an inline @ token for orientation while richer
     // context is still applied behind the scenes when available.
     const mentionQuery = mention ? mention.q.toLowerCase() : '';
-    const filteredFiles = mention
-      ? projectFiles
-          .filter((f) => f.type === undefined || f.type === "file")
-          .filter((f) => {
-            const key = f.path ?? f.name;
-            return key.toLowerCase().includes(mentionQuery);
-          })
-          .slice(0, 12)
-      : [];
-    const filteredPlugins = mention
-      ? pluginsForComposer
-          .filter((p) => {
-            if (!mentionQuery) return true;
-            return (
-              p.title.toLowerCase().includes(mentionQuery) ||
-              p.id.toLowerCase().includes(mentionQuery) ||
-              (p.manifest?.description ?? '').toLowerCase().includes(mentionQuery) ||
-              (p.manifest?.tags ?? []).join(' ').toLowerCase().includes(mentionQuery)
-            );
-          })
-          .slice(0, 8)
-      : [];
-    const filteredMcpServers = mention
-      ? enabledMcpServers
-          .filter((s) => {
-            if (!mentionQuery) return true;
-            return [
-              s.id,
-              s.label ?? '',
-              s.transport,
-              s.url ?? '',
-              s.command ?? '',
-            ]
-              .join(' ')
-              .toLowerCase()
-              .includes(mentionQuery);
-          })
-          .slice(0, 8)
-      : [];
-    const filteredConnectors = mention
-      ? connectors
-          .filter((connector) => {
-            if (!mentionQuery) return true;
-            return [
-              connector.id,
-              connector.name,
-              connector.provider,
-              connector.category,
-              connector.description ?? '',
-              connector.accountLabel ?? '',
-            ]
-              .join(' ')
-              .toLowerCase()
-              .includes(mentionQuery);
-          })
-          .slice(0, 8)
-      : [];
+    // The five suggestion lists below only matter while the @-popover is open
+    // (each is `[]` otherwise). Memoize them on `[mention, mentionQuery,
+    // <source>]` so the filter/sort passes run only when the query or the
+    // backing list actually changes — not on every unrelated composer render
+    // (streaming flips, draft typing routed through Lexical, staged-chip churn).
+    // `mention` is in the deps (not just `mentionQuery`) so the open/close gate
+    // re-evaluates: a null→{q:''} transition keeps the query '' but must flip
+    // the list from `[]` to live results.
+    const filteredFiles = useMemo(
+      () =>
+        mention
+          ? projectFiles
+              .filter((f) => f.type === undefined || f.type === "file")
+              .filter((f) => {
+                const key = f.path ?? f.name;
+                return key.toLowerCase().includes(mentionQuery);
+              })
+              .slice(0, 12)
+          : [],
+      [mention, mentionQuery, projectFiles],
+    );
+    const filteredPlugins = useMemo(
+      () =>
+        mention
+          ? pluginsForComposer
+              .filter((p) => {
+                if (!mentionQuery) return true;
+                return (
+                  p.title.toLowerCase().includes(mentionQuery) ||
+                  p.id.toLowerCase().includes(mentionQuery) ||
+                  (p.manifest?.description ?? '').toLowerCase().includes(mentionQuery) ||
+                  (p.manifest?.tags ?? []).join(' ').toLowerCase().includes(mentionQuery)
+                );
+              })
+              .slice(0, 8)
+          : [],
+      [mention, mentionQuery, pluginsForComposer],
+    );
+    const filteredMcpServers = useMemo(
+      () =>
+        mention
+          ? enabledMcpServers
+              .filter((s) => {
+                if (!mentionQuery) return true;
+                return [
+                  s.id,
+                  s.label ?? '',
+                  s.transport,
+                  s.url ?? '',
+                  s.command ?? '',
+                ]
+                  .join(' ')
+                  .toLowerCase()
+                  .includes(mentionQuery);
+              })
+              .slice(0, 8)
+          : [],
+      [mention, mentionQuery, enabledMcpServers],
+    );
+    const filteredConnectors = useMemo(
+      () =>
+        mention
+          ? connectors
+              .filter((connector) => {
+                if (!mentionQuery) return true;
+                return [
+                  connector.id,
+                  connector.name,
+                  connector.provider,
+                  connector.category,
+                  connector.description ?? '',
+                  connector.accountLabel ?? '',
+                ]
+                  .join(' ')
+                  .toLowerCase()
+                  .includes(mentionQuery);
+              })
+              .slice(0, 8)
+          : [],
+      [mention, mentionQuery, connectors],
+    );
     // Already-staged skills drop out of the suggestion list (carried over
     // from main) so the @-popover keeps moving forward as the user picks.
-    const stagedSkillIds = new Set(stagedSkills.map((s) => s.id));
-    const filteredSkills = mention
-      ? skills
-          .filter((s) => !stagedSkillIds.has(s.id))
-          .filter((s) => skillMatchesQuery(s, mentionQuery))
-          .sort((a, b) => skillMentionRank(a, mentionQuery) - skillMentionRank(b, mentionQuery))
-      : [];
+    const filteredSkills = useMemo(() => {
+      if (!mention) return [];
+      const stagedSkillIds = new Set(stagedSkills.map((s) => s.id));
+      return skills
+        .filter((s) => !stagedSkillIds.has(s.id))
+        .filter((s) => skillMatchesQuery(s, mentionQuery))
+        .sort((a, b) => skillMentionRank(a, mentionQuery) - skillMentionRank(b, mentionQuery));
+    }, [mention, mentionQuery, skills, stagedSkills]);
     const hasComposerPayload =
       draft.trim().length > 0 || staged.length > 0 || currentCommentAttachments().length > 0;
     const showStopButton = streaming && !hasComposerPayload;

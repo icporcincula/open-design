@@ -262,6 +262,17 @@ describe('ChatPane streaming state', () => {
       },
     ];
 
+    const onRequestOpenFile = vi.fn();
+    const onRequestPluginDetails = vi.fn();
+    const onRequestDesignSystemDetails = vi.fn();
+    const activeDesignSystem = {
+      id: 'neutral-modern',
+      title: 'Neutral Modern',
+      category: 'Starter',
+      source: 'bundled',
+      updatedAt: 1,
+    } as never;
+
     render(
       <ChatPane
         projectKindForTracking="prototype"
@@ -278,6 +289,10 @@ describe('ChatPane streaming state', () => {
         onSelectConversation={vi.fn()}
         onDeleteConversation={vi.fn()}
         projectMetadata={projectMetadata}
+        onRequestOpenFile={onRequestOpenFile}
+        onRequestPluginDetails={onRequestPluginDetails}
+        onRequestDesignSystemDetails={onRequestDesignSystemDetails}
+        activeDesignSystem={activeDesignSystem}
       />,
     );
 
@@ -285,6 +300,13 @@ describe('ChatPane streaming state', () => {
     expect(screen.getByTestId('msg-workspace-context-chip').textContent).toContain('Dribbble');
     expect(screen.getByTestId('msg-plugin-chip').textContent)
       .toContain('A Decade of Refinement Glow-Up');
+    fireEvent.click(screen.getByTestId('msg-workspace-context-chip'));
+    expect(onRequestOpenFile).toHaveBeenCalledWith('tab-1');
+    fireEvent.click(screen.getByTestId('msg-plugin-chip'));
+    expect(onRequestPluginDetails).toHaveBeenCalledWith('refinement-plugin');
+    expect(screen.getByTestId('msg-design-system-chip').textContent).toContain('Neutral Modern');
+    fireEvent.click(screen.getByTestId('msg-design-system-chip'));
+    expect(onRequestDesignSystemDetails).toHaveBeenCalledWith(activeDesignSystem);
     // The plugin's resolved context is now collapsed into the single
     // plugin chip — the per-category (asset/design/skill) fan-out is no
     // longer rendered in the bubble, even though the full snapshot still
