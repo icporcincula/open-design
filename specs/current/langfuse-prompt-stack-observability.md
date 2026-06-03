@@ -165,8 +165,8 @@ exact field names (`redactionApplied`, `redactedContent`, `redactedContentBytes`
       "sha256": "sha256:...",
       "redactionApplied": true,
       "redactedContent": "bounded redacted system prompt content",
-      "redactedContentBytes": 16384,
-      "redactedContentTruncated": true
+      "redactedContentBytes": 24120,
+      "redactedContentTruncated": false
     }
   ]
 }
