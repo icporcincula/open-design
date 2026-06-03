@@ -57,7 +57,12 @@
       return null;
     };
 
-    const enhanceDownloadCtas = (release) => {
+    // The header download CTA links to the dedicated /download page (a
+    // shareable, indexable matrix of every installer), so we never rewrite
+    // its href to a direct asset. We only annotate the detected platform —
+    // "Download （Apple Silicon）" — so the button still tells visitors which
+    // build the page will recommend. The /download page owns the asset hrefs.
+    const enhanceDownloadCtas = () => {
       const ctas = document.querySelectorAll('[data-download-cta]');
       if (ctas.length === 0) return;
       const platform = detectPlatform();
@@ -69,20 +74,6 @@
         if (!platform.arch) continue;
         slot.textContent = `（${platform.arch}）`;
         slot.hidden = false;
-      }
-      const assets = Array.isArray(release?.assets) ? release.assets : [];
-      const asset = assets.find(
-        (a) =>
-          a &&
-          typeof a.name === 'string' &&
-          typeof a.browser_download_url === 'string' &&
-          platform.match(a.name),
-      );
-      if (!asset) return;
-      for (const cta of ctas) {
-        cta.href = asset.browser_download_url;
-        cta.removeAttribute('target');
-        cta.removeAttribute('rel');
       }
     };
 
@@ -159,15 +150,17 @@
         .catch(() => {});
     }
 
+    // Download CTA annotation is pure client-side OS detection — no network
+    // needed, so run it immediately (and even if the version fetch fails).
+    enhanceDownloadCtas();
+
     const versionSlots = document.querySelectorAll('[data-github-version]');
-    const hasDownloadCtas = document.querySelector('[data-download-cta]') !== null;
-    if (versionSlots.length > 0 || hasDownloadCtas) {
+    if (versionSlots.length > 0) {
       fetch(`${REPO_API}/releases/latest`, {
         headers: { Accept: 'application/vnd.github+json' },
       })
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error('http error'))))
         .then((data) => {
-          enhanceDownloadCtas(data);
           const label = formatVersion(data);
           if (!label) return;
           for (const slot of versionSlots) slot.textContent = label;

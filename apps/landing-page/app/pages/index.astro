@@ -302,6 +302,10 @@ const pageHtml = renderToStaticMarkup(
           );
           if (!asset) return;
           for (const cta of ctas) {
+            // Buttons that intentionally route to the /download page (e.g. the
+            // header CTA) opt out of direct-asset rewriting; they still get the
+            // arch label above, but keep their page href.
+            if (cta.hasAttribute('data-download-page')) continue;
             cta.href = asset.browser_download_url;
             // A direct file download should not open a blank tab.
             cta.removeAttribute('target');
