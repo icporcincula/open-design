@@ -202,6 +202,10 @@ describe('QuestionFormView', () => {
     );
 
     const submit = screen.getByRole('button', { name: 'Send answers' });
+    // Required field unanswered → submit stays disabled (regression guard:
+    // the Questions-tab refactor must not make required fields optional on the
+    // standard submit path).
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByLabelText('Editorial / magazine'));
     fireEvent.click(screen.getByLabelText('Soft gradients'));
@@ -226,6 +230,8 @@ describe('QuestionFormView', () => {
     );
 
     const submit = screen.getByRole('button', { name: 'Send answers' });
+    // Required select unanswered → submit stays disabled (regression guard).
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     const select = container.querySelector('select');
     if (!select) throw new Error('expected select control');

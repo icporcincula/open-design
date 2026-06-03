@@ -79,7 +79,10 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
 
   function handleSubmit() {
     if (locked || !onSubmit) return;
-    if (!withinSelectionLimits) return;
+    // Block submit until required fields are answered and selection caps hold.
+    // skipAll() is the only path that intentionally bypasses this (the new
+    // Questions-tab Skip button / countdown).
+    if (!ready) return;
     onSubmit(formatFormAnswers(form, answers), answers);
   }
 
@@ -89,14 +92,25 @@ export const QuestionFormView = forwardRef<QuestionFormHandle, Props>(function Q
     onSubmit(formatFormAnswers(form, empty), empty);
   }
 
-  // Every question is optional; the only hard constraint is per-question
-  // checkbox selection caps. "Ready" therefore just means we're within those.
+  // Per-question checkbox selection caps must hold.
   const withinSelectionLimits = form.questions.every((q) => {
     if (q.type !== 'checkbox' || q.maxSelections === undefined) return true;
     const v = currentAnswers[q.id];
     return !Array.isArray(v) || v.length <= q.maxSelections;
   });
-  const ready = withinSelectionLimits;
+  // Required questions must carry a non-empty answer. This gates the standard
+  // submit button AND the Questions-tab Continue CTA — only skipAll() bypasses
+  // it on purpose. Without this, main-path forms (the discovery router's
+  // required taskType/output, the ElevenLabs voice picker) would accept an
+  // empty submit and serialize "(skipped)" for fields the rest of the system
+  // treats as mandatory.
+  const requiredAnswered = form.questions.every((q) => {
+    if (q.required !== true) return true;
+    const v = currentAnswers[q.id];
+    if (Array.isArray(v)) return v.length > 0;
+    return typeof v === 'string' && v.trim().length > 0;
+  });
+  const ready = withinSelectionLimits && requiredAnswered;
 
   useImperativeHandle(ref, () => ({ submit: handleSubmit, skipAll: handleSkipAll }));
   useEffect(() => {
