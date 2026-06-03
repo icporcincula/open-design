@@ -94,7 +94,7 @@ const SECTION_PRIORITY = new Map<PromptTelemetrySectionKind, number>([
 ]);
 
 const POSIX_LOCAL_PATH =
-  /(^|[\s([{"'`])\/(?:Users|home|tmp|private\/tmp|var\/folders|Volumes|mnt|workspace)\/[^\s)\]}"'`,;<>]+/g;
+  /(^|[\s([{"'`])\/(?:Users|home|root|tmp|private\/tmp|private\/var\/folders|var\/folders|Volumes|mnt|workspace)\/[^\s)\]}"'`,;<>]+/g;
 const WINDOWS_LOCAL_PATH =
   /(^|[\s([{"'`])(?:[A-Za-z]:\\|\\\\)[^\s)\]}"'`,;<>]+/g;
 

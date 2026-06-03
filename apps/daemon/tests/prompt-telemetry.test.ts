@@ -44,6 +44,39 @@ describe('prompt telemetry builder', () => {
     expect(first.sections[0]!.fingerprint).toBe(second.sections[0]!.fingerprint);
   });
 
+  it('redacts macOS private var folders and root session paths before fingerprinting', () => {
+    const first = buildPromptStackTelemetry({
+      composedPrompt:
+        'open /private/var/folders/aa/token/T/render.png and /root/project/file.ts',
+      sections: [
+        {
+          kind: 'userRequest',
+          content:
+            'open /private/var/folders/aa/token/T/render.png and /root/project/file.ts',
+        },
+      ],
+    });
+    const second = buildPromptStackTelemetry({
+      composedPrompt:
+        'open /private/var/folders/bb/other/T/render.png and /root/other/file.ts',
+      sections: [
+        {
+          kind: 'userRequest',
+          content:
+            'open /private/var/folders/bb/other/T/render.png and /root/other/file.ts',
+        },
+      ],
+    });
+
+    expect(first.sections[0]!.redactedContent).toBe(
+      `open ${PROMPT_STACK_PATH_MARKER} and ${PROMPT_STACK_PATH_MARKER}`,
+    );
+    expect(first.sections[0]!.redactedContent).not.toContain('/private/var/folders');
+    expect(first.sections[0]!.redactedContent).not.toContain('/root/project');
+    expect(first.promptFingerprint).toBe(second.promptFingerprint);
+    expect(first.sections[0]!.fingerprint).toBe(second.sections[0]!.fingerprint);
+  });
+
   it('strips runtime tool token-bearing lines before capture', () => {
     const telemetry = buildPromptStackTelemetry({
       composedPrompt: 'tools',
