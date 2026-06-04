@@ -188,14 +188,19 @@ export function StreamingAskUserQuestionCard({ raw }: { raw: string }) {
         <span className="op-ask-question-typing" aria-hidden><i /><i /><i /></span>
       </div>
       <div className="op-ask-question-body">
-        {questions.map((q) => (
-          <div key={q.question} className="op-ask-question-field">
+        {/* Positional keys: the prompt/label strings are themselves growing
+            token-by-token, so keying on them would remount each field/option
+            every delta and replay the reveal. Questions and options only
+            append during streaming, so the index is stable and each node
+            mounts once and updates its text in place. */}
+        {questions.map((q, qi) => (
+          <div key={qi} className="op-ask-question-field">
             {q.header ? <div className="op-ask-question-header">{q.header}</div> : null}
             <div className="op-ask-question-prompt">{q.question}</div>
             <div className="op-ask-question-options">
-              {q.options.map((opt) => (
+              {q.options.map((opt, oi) => (
                 <button
-                  key={opt.label}
+                  key={`${qi}:${oi}`}
                   type="button"
                   className="op-ask-question-option"
                   disabled
