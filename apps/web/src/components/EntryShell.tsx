@@ -800,7 +800,6 @@ function OnboardingView({
   onApiModelChange,
   onConfigPersist,
   onRefreshAgents,
-  renderDesignSystemCreation,
   onFinish,
 }: {
   config: AppConfig;
@@ -836,7 +835,6 @@ function OnboardingView({
   const analytics = useAnalytics();
   const [step, setStep] = useState(0);
   const [runtime, setRuntime] = useState<'amr' | 'local' | 'byok' | null>(null);
-  const [designSource, setDesignSource] = useState<'github' | 'upload' | 'prompt' | null>(null);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [cliScanStatus, setCliScanStatus] = useState<'idle' | 'scanning' | 'done'>('idle');
   const [amrStatus, setAmrStatus] = useState<VelaLoginStatus | null>(null);
@@ -1020,9 +1018,9 @@ function OnboardingView({
       stepIndex = '2';
       stepName = 'about_you';
     } else {
-      area = 'design_system';
+      area = 'newsletter';
       stepIndex = '3';
-      stepName = 'design_system';
+      stepName = 'newsletter';
     }
     trackPageView(analytics.track, {
       page_name: 'onboarding',
@@ -1055,27 +1053,7 @@ function OnboardingView({
   } {
     if (stepIdx === 0) return { area: 'runtime', stepIndex: '1', stepName: 'connect' };
     if (stepIdx === 1) return { area: 'about_you', stepIndex: '2', stepName: 'about_you' };
-    return { area: 'design_system', stepIndex: '3', stepName: 'design_system' };
-  }
-  // Pure mapping from `DesignSystemGenerateSnapshot` to the v2
-  // `TrackingOnboardingSourceType` enum. Single-source batches collapse
-  // to that source's literal; mixed batches go to `'mixed'`; the empty
-  // batch falls back to `'text'` when the user typed a brand
-  // description (prompt-only path, which the v2 contract reserves the
-  // `'text'` literal for) and `'none'` otherwise. The pre-fix version
-  // shipped `'none'` for prompt-only too, losing the prompt-only vs
-  // truly-empty distinction the dashboard needs.
-  function deriveOnboardingSourceType(
-    snapshot: DesignSystemGenerateSnapshot,
-  ): import('@open-design/contracts/analytics').TrackingOnboardingSourceType {
-    if (snapshot.sourceCount === 0) {
-      return snapshot.hasBrandDescription ? 'text' : 'none';
-    }
-    if (snapshot.githubRepoCount === snapshot.sourceCount) return 'github_repo';
-    if (snapshot.localFolderCount === snapshot.sourceCount) return 'local_code';
-    if (snapshot.figFileCount === snapshot.sourceCount) return 'fig';
-    if (snapshot.assetFileCount === snapshot.sourceCount) return 'assets';
-    return 'mixed';
+    return { area: 'newsletter', stepIndex: '3', stepName: 'newsletter' };
   }
   function emitOnboardingClick(
     element: TrackingOnboardingClickElement,
@@ -1121,9 +1099,12 @@ function OnboardingView({
     lifecycleReportedRef.current = true;
     const info = stepInfo(step);
     const snapshot = extra.sourceSnapshot;
+    // Onboarding no longer hosts a design-system step, so a completion
+    // never carries a DS request unless a caller passes an explicit
+    // snapshot (none do today).
     const hasRequest = snapshot
       ? snapshot.sourceCount > 0 || snapshot.hasBrandDescription
-      : Boolean(designSource);
+      : false;
     const sourceCount = snapshot ? snapshot.sourceCount : 0;
     // Read from `profileRef` for the same reason `emitAboutYouSubmit`
     // does: a Finish-setup click may fire before React commits the
@@ -1166,6 +1147,7 @@ function OnboardingView({
   const steps = [
     t('settings.onboardingStepConnect'),
     t('settings.onboardingStepProfile'),
+    t('settings.onboardingStepNewsletter'),
   ];
   const isLastStep = step === steps.length - 1;
 
@@ -1201,50 +1183,6 @@ function OnboardingView({
     },
   ];
 
-  const designItems: Array<{
-    id: 'github' | 'upload' | 'prompt';
-    icon: 'github' | 'upload' | 'sparkles';
-    title: string;
-    body: string;
-    onSelect: () => void;
-  }> = [
-    {
-      id: 'github',
-      icon: 'github',
-      title: t('settings.onboardingGithubTitle'),
-      body: t('settings.onboardingGithubBody'),
-      onSelect: () => {
-        emitOnboardingClick('github_repo', 'add_source', {
-          source_type: 'github_repo',
-        });
-        setDesignSource('github');
-      },
-    },
-    {
-      id: 'upload',
-      icon: 'upload',
-      title: t('settings.onboardingUploadTitle'),
-      body: t('settings.onboardingUploadBody'),
-      onSelect: () => {
-        emitOnboardingClick('local_code', 'upload_source', {
-          source_type: 'local_code',
-        });
-        setDesignSource('upload');
-      },
-    },
-    {
-      id: 'prompt',
-      icon: 'sparkles',
-      title: t('settings.onboardingPromptTitle'),
-      body: t('settings.onboardingPromptBody'),
-      onSelect: () => {
-        emitOnboardingClick('fig_upload', 'upload_source', {
-          source_type: 'fig',
-        });
-        setDesignSource('prompt');
-      },
-    },
-  ];
   const roleOptions = [
     { value: 'pm', label: t('settings.onboardingRolePm') },
     { value: 'designer', label: t('settings.onboardingRoleDesigner') },
@@ -1875,6 +1813,15 @@ function OnboardingView({
                   }}
                 />
               </div>
+            </div>
+          ) : null}
+
+          {step === 2 ? (
+            <div className="onboarding-view__panel">
+              <OnboardingPanelHeader
+                title={t('settings.onboardingNewsletterTitle')}
+                body={t('settings.onboardingNewsletterBody')}
+              />
               <label className="onboarding-view__email-field">
                 <span className="onboarding-view__email-label">
                   {t('newsletter.label')}
@@ -1894,130 +1841,28 @@ function OnboardingView({
             </div>
           ) : null}
 
-          {step === 2 && renderDesignSystemCreation ? (
-            <div className="onboarding-view__design-system-create">
-              <div className="onboarding-view__ds-intro">
-                <OnboardingPanelHeader
-                  title={t('settings.onboardingDesignTitle')}
-                  body={t('settings.onboardingDesignBody')}
-                />
-                <div className="onboarding-view__ds-points">
-                  <div>
-                    <strong>{t('settings.onboardingDesignIntroGenerateTitle')}</strong>
-                    <span>{t('settings.onboardingDesignIntroGenerateBody')}</span>
-                  </div>
-                  <div>
-                    <strong>{t('settings.onboardingDesignIntroReuseTitle')}</strong>
-                    <span>{t('settings.onboardingDesignIntroReuseBody')}</span>
-                  </div>
-                </div>
-                <button type="button" className="onboarding-view__ds-skip" onClick={handleSkipWithTracking}>
-                  {t('settings.onboardingSkip')}
-                </button>
-              </div>
-              {renderDesignSystemCreation(() => setStep(1), {
-                onBeforeGenerate: (snapshot) => {
-                  // INTENT signal — fires before async DS-draft create
-                  // / workspace-open work runs. Use it ONLY for the
-                  // `generate` click row so the dashboard captures
-                  // user intent even when generation later errors.
-                  // The lifecycle `onboarding_complete_result` row
-                  // moved to `onGenerateSettled` below so a draft
-                  // create failure no longer ships as
-                  // `completion_type=completed_with_design_system`.
-                  emitOnboardingClick('generate', 'generate', {
-                    source_type: deriveOnboardingSourceType(snapshot),
-                    source_count: snapshot.sourceCount,
-                    has_brand_description: snapshot.hasBrandDescription,
-                  });
-                },
-                onGenerateSettled: (snapshot, outcome) => {
-                  // OUTCOME signal — fires from `DesignSystemCreationFlow`
-                  // *after* the create/workspace branch settles.
-                  // Success → emit lifecycle complete row with
-                  //   `completion_type=completed_with_design_system`.
-                  //   Generation hand-off navigates away from this
-                  //   tab; the post-Generate `chat_panel` page_view
-                  //   in ProjectView fires the 4th-step
-                  //   `area=generation_progress` row and clears the
-                  //   session id. Don't clear here.
-                  // Failure → emit lifecycle complete with
-                  //   `result=failed`, the daemon's failure code, and
-                  //   `completed_without_design_system` so we don't
-                  //   overstate completed-with-DS funnel. Then re-arm
-                  //   the lifecycle guard (don't clear the session
-                  //   id) so the user's retry attempt — which
-                  //   DesignSystemCreationFlow leaves them in by
-                  //   bouncing back to its setup step — emits a
-                  //   second complete row under the SAME
-                  //   onboarding_session_id, and any eventual
-                  //   success can still navigate to ProjectView with
-                  //   the id intact for step 4. Tracked by mrcfps
-                  //   review on PR #2590 (2026-05-21 14:45).
-                  if (outcome.result === 'success') {
-                    emitOnboardingComplete(
-                      'completed',
-                      'completed_with_design_system',
-                      { sourceSnapshot: snapshot },
-                    );
-                    return;
-                  }
-                  emitOnboardingComplete(
-                    'failed',
-                    'completed_without_design_system',
-                    { sourceSnapshot: snapshot, errorCode: outcome.errorCode },
-                  );
-                  lifecycleReportedRef.current = false;
-                },
-              })}
-            </div>
-          ) : null}
-
-          {step === 2 && !renderDesignSystemCreation ? (
-            <div className="onboarding-view__panel">
-              <OnboardingPanelHeader
-                title={t('settings.onboardingDesignTitle')}
-                body={t('settings.onboardingDesignBody')}
-              />
-              <div className="onboarding-view__grid">
-                {designItems.map((item) => (
-                  <OnboardingChoiceCard
-                    key={item.id}
-                    icon={item.icon}
-                    title={item.title}
-                    body={item.body}
-                    selected={designSource === item.id}
-                    onClick={item.onSelect}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          {step === 2 && renderDesignSystemCreation ? null : (
-            <div className="onboarding-view__actions">
-              {step === 0 && amrLoginError ? (
-                <span className="onboarding-view__action-status is-error" role="alert">
-                  {t('settings.amrLoginErrorCompact')}
-                </span>
-              ) : null}
-              <button
-                type="button"
-                className="onboarding-view__secondary"
-                onClick={handleBackWithTracking}
-              >
-                {step === 0 ? t('settings.onboardingSkip') : t('settings.onboardingBack')}
-              </button>
-              <button
-                type="button"
-                className="onboarding-view__primary"
-                onClick={handlePrimaryAction}
-                disabled={amrLoginPending}
-              >
-                <span>{primaryActionLabel}</span>
-              </button>
-            </div>
-          )}
+          <div className="onboarding-view__actions">
+            {step === 0 && amrLoginError ? (
+              <span className="onboarding-view__action-status is-error" role="alert">
+                {t('settings.amrLoginErrorCompact')}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              className="onboarding-view__secondary"
+              onClick={handleBackWithTracking}
+            >
+              {step === 0 ? t('settings.onboardingSkip') : t('settings.onboardingBack')}
+            </button>
+            <button
+              type="button"
+              className="onboarding-view__primary"
+              onClick={handlePrimaryAction}
+              disabled={amrLoginPending}
+            >
+              <span>{primaryActionLabel}</span>
+            </button>
+          </div>
         </div>
       </div>
     </section>

@@ -368,6 +368,7 @@ export type TrackingChatPanelPageViewSource =
 export type TrackingOnboardingArea =
   | 'runtime'
   | 'about_you'
+  | 'newsletter'
   | 'design_system'
   | 'generation_progress';
 
@@ -378,6 +379,7 @@ export type TrackingOnboardingStepIndex = '1' | '2' | '3' | 'progress';
 export type TrackingOnboardingStepName =
   | 'connect'
   | 'about_you'
+  | 'newsletter'
   | 'design_system'
   | 'generation';
 
