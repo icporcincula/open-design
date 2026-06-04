@@ -145,6 +145,13 @@ try {
     platformKey = "win"
     report = $report
     releaseVersion = $releaseVersion
+    r2 = [ordered]@{
+      latestManifestUrl = $latestManifestUrl
+      latestPrefix = $latestPrefix
+      publicOrigin = $publicOrigin
+      versionManifestUrl = $versionManifestUrl
+      versionPrefix = $versionPrefix
+    }
     signed = $signed
     status = "published"
     storage = [ordered]@{

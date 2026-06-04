@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -33,6 +33,13 @@ const releasePublishBetaMetadataScriptPath = join(
   "release",
   "r2",
   "publish-beta-metadata.ts",
+);
+const releasePublishPlatformPowerShellScriptPath = join(
+  workspaceRoot,
+  ".github",
+  "scripts",
+  "release",
+  "publish-platform.ps1",
 );
 const releaseBuildBetaScriptPath = join(workspaceRoot, ".github", "scripts", "release", "build-beta.ps1");
 const releaseWinReportScriptPath = join(workspaceRoot, ".github", "scripts", "release", "report", "win.ps1");
@@ -465,6 +472,136 @@ describe("packaged smoke workflow", () => {
 
       expect(fixture.uploadedObjectKeys()).toEqual([
         "beta/versions/1.2.3-beta.4/metadata.json",
+        "beta/latest/metadata.json",
+      ]);
+    } finally {
+      await fixture.close();
+      await rm(runnerTemp, { force: true, recursive: true });
+    }
+  });
+
+  it("accepts the self-hosted Windows PowerShell platform manifest in beta metadata publish", async () => {
+    const powershell = process.platform === "win32" ? "powershell.exe" : "pwsh";
+    const powershellProbe = await execFileAsync(powershell, ["-NoLogo", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"], {
+      maxBuffer: 1024 * 1024,
+    }).then(
+      () => true,
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return false;
+        throw error;
+      },
+    );
+    if (!powershellProbe) return;
+
+    const runnerTemp = await mkdtemp(join(tmpdir(), "od-release-beta-win-publish-"));
+    const fixture = await startReleaseMetadataObjectStore({});
+    const indexRoot = join(runnerTemp, "root");
+    const artifactRoot = join(runnerTemp, "artifacts");
+    const indexPath = join(indexRoot, "win", "index", "index.json");
+    const installerPath = join(artifactRoot, "setup.exe");
+
+    try {
+      await mkdir(dirname(indexPath), { recursive: true });
+      await mkdir(artifactRoot, { recursive: true });
+      await writeFile(installerPath, "fake installer bytes");
+      await writeFile(
+        indexPath,
+        `${JSON.stringify(
+          {
+            artifacts: { installerPath },
+            branch: "codex/release-beta-s-mac-arm64",
+            channel: "beta",
+            commit: "current-sha",
+            platform: "win",
+            releaseVersion: "1.2.3-beta.4",
+            root: indexRoot,
+            signed: false,
+            status: "success",
+            target: "nsis",
+          },
+          null,
+          2,
+        )}\n`,
+      );
+
+      await execFileAsync(
+        powershell,
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          releasePublishPlatformPowerShellScriptPath,
+          "-IndexPath",
+          indexPath,
+          "-ChannelPrefix",
+          "beta",
+          "-Platform",
+          "win",
+        ],
+        {
+          cwd: workspaceRoot,
+          env: {
+            ...process.env,
+            GITHUB_REF_NAME: "codex/release-beta-s-mac-arm64",
+            GITHUB_REPOSITORY: "nexu-io/open-design",
+            GITHUB_RUN_ATTEMPT: "2",
+            GITHUB_RUN_ID: "222222222",
+            GITHUB_SHA: "current-sha",
+            GITHUB_WORKFLOW: "release-beta-s",
+            S3_PUBLIC_ORIGIN: "https://releases.open-design.ai",
+          },
+          maxBuffer: 1024 * 1024,
+        },
+      );
+
+      const platformManifestRoot = join(indexRoot, "win", "publish", "manifests");
+      const winManifest = JSON.parse(await readFile(join(platformManifestRoot, "win.json"), "utf8"));
+      expect(winManifest.r2).toMatchObject({
+        latestManifestUrl: "https://releases.open-design.ai/beta/latest/platforms/win.json",
+        latestPrefix: "beta/latest",
+        publicOrigin: "https://releases.open-design.ai",
+        versionManifestUrl: "https://releases.open-design.ai/beta/versions/1.2.3-beta.4.unsigned/platforms/win.json",
+        versionPrefix: "beta/versions/1.2.3-beta.4.unsigned",
+      });
+
+      await execFileAsync(process.execPath, ["--experimental-strip-types", releasePublishBetaMetadataScriptPath], {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          AWS_ACCESS_KEY_ID: "test-access-key",
+          AWS_DEFAULT_REGION: "auto",
+          AWS_SECRET_ACCESS_KEY: "test-secret-key",
+          BASE_VERSION: "1.2.3",
+          BRANCH_NAME: "codex/release-beta-s-mac-arm64",
+          CLOUDFLARE_R2_RELEASES_BUCKET: fixture.bucket,
+          CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN: "https://releases.open-design.ai",
+          CLOUDFLARE_R2_RELEASES_URL: fixture.endpointUrl,
+          ENABLE_LINUX: "false",
+          ENABLE_MAC: "false",
+          ENABLE_MAC_INTEL: "false",
+          ENABLE_WIN: "true",
+          GITHUB_RUN_ATTEMPT: "2",
+          GITHUB_RUN_ID: "222222222",
+          GITHUB_SHA: "current-sha",
+          PLATFORM_MANIFEST_ROOT: platformManifestRoot,
+          PLATFORM_MANIFEST_PREFIX: "beta/latest/platforms",
+          RELEASE_CHANNEL: "beta",
+          RELEASE_SIGNED: "false",
+          RELEASE_VERSION: "1.2.3-beta.4",
+          RUNNER_TEMP: runnerTemp,
+          STATE_SOURCE: "test",
+          WIN_RESULT: "success",
+        },
+        maxBuffer: 1024 * 1024,
+      });
+
+      const metadata = JSON.parse(await readFile(join(runnerTemp, "release-metadata", "metadata.json"), "utf8"));
+      expect(metadata.readyPlatforms).toEqual(["win"]);
+      expect(metadata.platforms.win.r2.versionPrefix).toBe("beta/versions/1.2.3-beta.4.unsigned");
+      expect(fixture.uploadedObjectKeys()).toEqual([
+        "beta/versions/1.2.3-beta.4.unsigned/metadata.json",
         "beta/latest/metadata.json",
       ]);
     } finally {
