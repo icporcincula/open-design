@@ -244,6 +244,66 @@ describe('HomeView context picker', () => {
     }));
   });
 
+  it('keeps a context-only `Use` selection in the submit payload without an @mention', async () => {
+    // Regression: the submit-time reconciliation dropped every context that
+    // lacked an inline `@mention` token, which silently discarded contexts
+    // staged through the plain `Use` action (which never writes a token). The
+    // agent then received no `contextPlugins` even though the user explicitly
+    // chose the plugin as context. See PR #3625 review thread on HomeView.tsx.
+    const plugin = makePlugin('chart-plugin', 'Chart Plugin');
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      if (typeof url === 'string' && url === '/api/plugins') {
+        return new Response(JSON.stringify({ plugins: [plugin] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (typeof url === 'string' && url === '/api/mcp/servers') {
+        return new Response(JSON.stringify({ servers: [], templates: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+    const onSubmit = vi.fn();
+
+    render(
+      <HomeView
+        projects={[]}
+        onSubmit={onSubmit}
+        onOpenProject={() => undefined}
+        onViewAllProjects={() => undefined}
+      />,
+    );
+
+    await screen.findByTestId('home-hero-input');
+
+    // Stage the plugin as context-only via the plain `Use` action. This does
+    // NOT insert an `@mention` pill into the prompt.
+    fireEvent.click(await screen.findByTestId('plugins-home-use-chart-plugin'));
+    await settle();
+
+    // The user then types a freeform prompt that never references the plugin.
+    setHomeHeroPrompt('Summarize my latest numbers');
+    await settle();
+    expect(homeHeroPromptText()).not.toContain('@');
+
+    fireEvent.click(screen.getByTestId('home-hero-submit'));
+
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: 'Summarize my latest numbers',
+      contextPlugins: [
+        expect.objectContaining({ id: 'chart-plugin', title: 'Chart Plugin' }),
+      ],
+    }));
+  });
+
   it('binds a selected home skill to the created project payload', async () => {
     const fetchMock = vi.fn<typeof fetch>(async (url) => {
       if (typeof url === 'string' && url === '/api/plugins') {

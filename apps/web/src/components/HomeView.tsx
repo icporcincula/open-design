@@ -113,16 +113,26 @@ interface ActivePlugin {
   suppressPromptSync: boolean;
 }
 
+// `inlineBacked` distinguishes a context inserted as an inline `@mention` pill
+// (added through the mention picker / plus menu, which writes a token into the
+// prompt) from a context-only selection made through the plain `Use` action
+// (which stages the context without touching the prompt). Inline-backed
+// contexts are dropped once their `@` token is deleted; context-only ones stay
+// selected until explicitly removed. Conflating the two drops plain `Use`
+// selections from the submit payload because they never carry a token.
 interface SelectedPluginContext {
   record: InstalledPluginRecord;
+  inlineBacked: boolean;
 }
 
 interface SelectedMcpContext {
   server: McpServerConfig;
+  inlineBacked: boolean;
 }
 
 interface SelectedConnectorContext {
   connector: ConnectorDetail;
+  inlineBacked: boolean;
 }
 
 interface PendingReplacement {
@@ -447,32 +457,31 @@ export function HomeView({
         : 0,
     [active],
   );
-  // Plugin/MCP/connector contexts whose @mention pill is still in the prompt
-  // are already represented inline in the composer, so they must NOT also drive
-  // the active context row — otherwise selecting only an inline-mentioned
-  // connector mounts an empty row (count label, no visible children) above the
-  // editor. Count only contexts that have no inline representation here.
+  // Inline-backed contexts are already represented in the composer as `@mention`
+  // pills, so they must NOT also drive the active context row — otherwise
+  // selecting only an inline-mentioned connector mounts an empty row (count
+  // label, no visible children) above the editor. Context-only `Use` selections
+  // have no inline representation, so they are the only ones the row should
+  // surface (and count).
   const contextItemCount = useMemo(() => {
-    const trimmed = prompt.trim();
-    const unreconciledPlugins = selectedPluginContexts.filter(
-      (item) => !mentionTokenPresent(trimmed, item.record.title),
+    const contextOnlyPlugins = selectedPluginContexts.filter(
+      (item) => !item.inlineBacked,
     ).length;
-    const unreconciledMcp = selectedMcpContexts.filter(
-      (item) => !mentionTokenPresent(trimmed, item.server.label || item.server.id),
+    const contextOnlyMcp = selectedMcpContexts.filter(
+      (item) => !item.inlineBacked,
     ).length;
-    const unreconciledConnectors = selectedConnectorContexts.filter(
-      (item) => !mentionTokenPresent(trimmed, item.connector.name),
+    const contextOnlyConnectors = selectedConnectorContexts.filter(
+      (item) => !item.inlineBacked,
     ).length;
     return (
       activeContextItemCount +
-      unreconciledPlugins +
-      unreconciledMcp +
-      unreconciledConnectors +
+      contextOnlyPlugins +
+      contextOnlyMcp +
+      contextOnlyConnectors +
       stagedFiles.length
     );
   }, [
     activeContextItemCount,
-    prompt,
     selectedConnectorContexts,
     selectedMcpContexts,
     selectedPluginContexts,
@@ -793,7 +802,7 @@ export function HomeView({
     let shouldFocusOnly = true;
     setSelectedPluginContexts((prev) => {
       if (prev.some((item) => item.record.id === record.id)) return prev;
-      return [...prev, { record }];
+      return [...prev, { record, inlineBacked: false }];
     });
     if (action === 'use-with-query') {
       const queryPrompt = renderPluginContextPrompt(record, inputs);
@@ -884,7 +893,7 @@ export function HomeView({
   function addPluginContext(record: InstalledPluginRecord, nextPrompt: string | null) {
     setSelectedPluginContexts((prev) => {
       if (prev.some((item) => item.record.id === record.id)) return prev;
-      return [...prev, { record }];
+      return [...prev, { record, inlineBacked: true }];
     });
     if (nextPrompt !== null) setPrompt(nextPrompt);
     setError(null);
@@ -1070,7 +1079,7 @@ export function HomeView({
     setSelectedMcpContexts((current) => (
       current.some((item) => item.server.id === _server.id)
         ? current
-        : [...current, { server: _server }]
+        : [...current, { server: _server, inlineBacked: true }]
     ));
     setPrompt(nextPrompt);
     setError(null);
@@ -1093,7 +1102,7 @@ export function HomeView({
     setSelectedConnectorContexts((current) => (
       current.some((item) => item.connector.id === connector.id)
         ? current
-        : [...current, { connector }]
+        : [...current, { connector, inlineBacked: true }]
     ));
     setPrompt(nextPrompt);
     setPromptEditedByUser(false);
@@ -1303,12 +1312,15 @@ export function HomeView({
       submittedActive = { ...submittedActive, result, inputs: submittedPluginInputs };
       setActive(submittedActive);
     }
-    // Only forward a context whose @mention pill still survives in the prompt.
-    // The Lexical composer lets users delete a mention pill (backspace, edit);
-    // when they do, that plugin/MCP/connector should stop being sent to the
-    // agent. Reconcile each selected context against the serialized prompt text.
+    // Reconcile each selected context against the serialized prompt text before
+    // forwarding it. Inline-backed contexts (inserted as `@mention` pills) are
+    // only sent while their token survives in the prompt — the Lexical composer
+    // lets users delete a mention pill (backspace, edit), and when they do that
+    // plugin/MCP/connector should stop being sent. Context-only `Use`
+    // selections never carry a token, so they stay in the payload until the
+    // user explicitly clears them.
     const contextPlugins = selectedPluginContexts
-      .filter((item) => mentionTokenPresent(trimmed, item.record.title))
+      .filter((item) => !item.inlineBacked || mentionTokenPresent(trimmed, item.record.title))
       .map((item) => ({
         id: item.record.id,
         title: item.record.title,
@@ -1317,7 +1329,7 @@ export function HomeView({
           : {}),
       }));
     const contextMcpServers = selectedMcpContexts
-      .filter((item) => mentionTokenPresent(trimmed, item.server.label || item.server.id))
+      .filter((item) => !item.inlineBacked || mentionTokenPresent(trimmed, item.server.label || item.server.id))
       .map((item) => ({
         id: item.server.id,
         ...(item.server.label ? { label: item.server.label } : {}),
@@ -1326,7 +1338,7 @@ export function HomeView({
         ...(item.server.command ? { command: item.server.command } : {}),
       }));
     const contextConnectors = selectedConnectorContexts
-      .filter((item) => mentionTokenPresent(trimmed, item.connector.name))
+      .filter((item) => !item.inlineBacked || mentionTokenPresent(trimmed, item.connector.name))
       .map((item) => ({
         id: item.connector.id,
         name: item.connector.name,
