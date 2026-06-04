@@ -198,4 +198,10 @@ describe('parsePartialQuestionForm (true token-by-token streaming)', () => {
       '<question-form id="discovery">{"submitLabel":"Generate brief","questions":[{"id":"a","label":"First","type":"text"}';
     expect(parsePartialQuestionForm(buf)?.submitLabel).toBe('Generate brief');
   });
+
+  it('keeps already-visible questions when a boolean value is split across deltas', () => {
+    // `required` cut mid-`true` must not drop the question already shown.
+    const buf = '<question-form id="discovery">{"questions":[{"id":"a","label":"Q","required":t';
+    expect(parsePartialQuestionForm(buf)?.questions.map((q) => q.label)).toEqual(['Q']);
+  });
 });

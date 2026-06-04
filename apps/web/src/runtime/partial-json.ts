@@ -45,13 +45,24 @@ export function repairJsonPrefix(buf: string): string {
     out += '"';
   }
   // 2. Trim trailing structural noise that can't be completed into a value:
-  //    a dangling comma, then a `"key":` with no value yet. Repeat so a
-  //    `, "key":` tail collapses fully.
+  //    a dangling comma, a `"key":` with no value yet, and an unfinished
+  //    *scalar* value cut mid-token (a partial `true`/`false`/`null`, or a
+  //    number ending on `.`/`e`/sign). Leaving those makes `{… :f}` etc.
+  //    unparseable, collapsing the live preview whenever a literal splits
+  //    across deltas. Each trim leaves a `"key":` / `,` / `[` boundary that
+  //    the next loop iteration cleans up. Complete literals (`true`, `12`,
+  //    `1.5`, `1e3`) are not prefixes of these patterns, so they survive.
+  const valueStart = '([:[,]\\s*)';
   let prev: string;
   do {
     prev = out;
     out = out.replace(/[,\s]+$/, '');
     out = out.replace(/"(?:[^"\\]|\\.)*"\s*:\s*$/, ''); // key + colon, no value
+    out = out.replace(new RegExp(`${valueStart}(?:tru|tr|t|fals|fal|fa|f|nul|nu|n)$`), '$1'); // partial bool/null
+    out = out.replace(new RegExp(`${valueStart}-?(?:\\d+\\.?\\d*|\\d*\\.\\d+)?[eE][+-]?$`), '$1'); // dangling exponent
+    out = out.replace(new RegExp(`${valueStart}-?\\d*\\.$`), '$1'); // number ending in '.'
+    out = out.replace(new RegExp(`${valueStart}-$`), '$1'); // lone minus
+    out = out.replace(/"(?:[^"\\]|\\.)*"\s*:\s*$/, ''); // key + colon exposed by the trims above
     out = out.replace(/[,\s]+$/, '');
   } while (out !== prev);
   // A bare trailing key (string with no following colon) only happens when

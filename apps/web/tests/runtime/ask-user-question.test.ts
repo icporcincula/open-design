@@ -52,6 +52,28 @@ describe('repairJsonPrefix', () => {
     // A lone trailing backslash (odd run) is the incomplete one — drop it.
     expect(JSON.parse(repairJsonPrefix('{"a":"C:\\\\Users\\'))).toEqual({ a: 'C:\\Users' });
   });
+
+  it('drops an unfinished scalar value cut mid-token', () => {
+    expect(JSON.parse(repairJsonPrefix('{"a":f'))).toEqual({});
+    expect(JSON.parse(repairJsonPrefix('{"a":tru'))).toEqual({});
+    expect(JSON.parse(repairJsonPrefix('{"a":nul'))).toEqual({});
+    expect(JSON.parse(repairJsonPrefix('{"a":true,"b":f'))).toEqual({ a: true });
+    expect(JSON.parse(repairJsonPrefix('{"a":1.'))).toEqual({});
+    expect(JSON.parse(repairJsonPrefix('{"a":1e'))).toEqual({});
+    expect(JSON.parse(repairJsonPrefix('{"a":-'))).toEqual({});
+    expect(JSON.parse(repairJsonPrefix('{"a":[1,2,f'))).toEqual({ a: [1, 2] });
+  });
+
+  it('keeps complete scalar literals (not prefixes of the partial patterns)', () => {
+    expect(JSON.parse(repairJsonPrefix('{"a":true'))).toEqual({ a: true });
+    expect(JSON.parse(repairJsonPrefix('{"a":false'))).toEqual({ a: false });
+    expect(JSON.parse(repairJsonPrefix('{"a":null'))).toEqual({ a: null });
+    expect(JSON.parse(repairJsonPrefix('{"a":12'))).toEqual({ a: 12 });
+    expect(JSON.parse(repairJsonPrefix('{"a":1.5'))).toEqual({ a: 1.5 });
+    expect(JSON.parse(repairJsonPrefix('{"a":1e3'))).toEqual({ a: 1000 });
+    // a string value that merely starts like a literal must not be touched
+    expect(JSON.parse(repairJsonPrefix('{"a":"f'))).toEqual({ a: 'f' });
+  });
 });
 
 describe('parsePartialJson', () => {
@@ -84,6 +106,12 @@ describe('parsePartialAskUserQuestion (token-by-token stability)', () => {
       '{"questions":[{"question":"Q","options":[{"label":"Postgres"},{"lab',
     );
     expect(labelNotYetStarted[0]?.options.map((o) => o.label)).toEqual(['Postgres']);
+  });
+
+  it('does not collapse when a boolean value is split across deltas', () => {
+    // `multiSelect` cut mid-`false` used to make the whole prefix unparseable.
+    const qs = parsePartialAskUserQuestion('{"questions":[{"question":"Q","multiSelect":f');
+    expect(qs.map((q) => q.question)).toEqual(['Q']);
   });
 
   it('does not collapse mid-stream on a prompt ending in a dangling escape', () => {
