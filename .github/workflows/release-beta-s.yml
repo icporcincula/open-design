@@ -637,7 +637,6 @@ jobs:
           RELEASE_OUTPUTS_PATH: C:\.tmp\runner\od-beta\win_x64\release-platform-outputs\win_x64.json
           RELEASE_PUBLIC_ORIGIN: ${{ inputs.release_public_origin }}
           RELEASE_REPORT_DIR: C:\.tmp\runner\od-beta\win_x64\release-report\win_x64
-          RELEASE_REPORT_ZIP_PATH: C:\.tmp\runner\od-beta\win_x64\release-report\win_x64-report.zip
           WIN_INCLUDE_ZIP: ${{ inputs.win_x64_target == 'all' || inputs.win_x64_target == 'zip' }}
           RELEASE_SIGNED: ${{ inputs.win_x64_sign_mode == 'on' && 'true' || 'false' }}
           RELEASE_STORAGE_ACCESS_KEY_ID: ${{ secrets.NEXU_S3_ACCESS_KEY_ID }}
