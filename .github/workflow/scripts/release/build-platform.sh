@@ -60,7 +60,9 @@ prepare_mac_signing() {
 prepare_mac_notarization() {
   required APPLE_ID
   required APPLE_TEAM_ID
-  required APPLE_NOTARY_KEYCHAIN_PROFILE
+  if [ -z "${APPLE_NOTARY_KEYCHAIN_PROFILE:-}" ]; then
+    required APPLE_APP_SPECIFIC_PASSWORD
+  fi
 }
 
 select_mac_signing_identity() {
