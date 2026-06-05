@@ -872,6 +872,7 @@ function OnboardingView({
   const [cliScanStatus, setCliScanStatus] = useState<'idle' | 'scanning' | 'done'>('idle');
   const [amrStatus, setAmrStatus] = useState<VelaLoginStatus | null>(null);
   const [amrLoginPending, setAmrLoginPending] = useState(false);
+  const [newsletterSubmitting, setNewsletterSubmitting] = useState(false);
   const [amrLoginError, setAmrLoginError] = useState<string | null>(null);
   const [visibleAgentIds, setVisibleAgentIds] = useState<string[]>([]);
   const [providerTestState, setProviderTestState] = useState<
@@ -1334,7 +1335,8 @@ function OnboardingView({
     emitOnboardingClick('back', 'back');
     setStep((current) => current - 1);
   }
-  function handlePrimaryAction() {
+  async function handlePrimaryAction() {
+    if (newsletterSubmitting) return;
     if (step === 0 && amrSelectedAndSignedOut) {
       const attribution = recordAmrEntry(
         analytics.track,
@@ -1357,7 +1359,13 @@ function OnboardingView({
       // `onboarding_complete_result` give the funnel two independent
       // paths for the same data.
       emitAboutYouSubmit();
-      submitNewsletterEmail(profileRef.current.email);
+      const newsletterEmail = profileRef.current.email;
+      const shouldSubmitNewsletter =
+        NEWSLETTER_EMAIL_RE.test(newsletterEmail.trim().toLowerCase());
+      if (shouldSubmitNewsletter) {
+        setNewsletterSubmitting(true);
+        await submitNewsletterEmail(newsletterEmail);
+      }
       emitOnboardingClick('continue', 'continue');
       // Last-step Continue without a DS generation = "completed
       // without design system". The Generate path inside the
@@ -1435,21 +1443,29 @@ function OnboardingView({
     });
   }
 
-  // Optional newsletter signup captured on the About-you step. Fire-and-forget
-  // so a slow or failing request never blocks finishing onboarding; a blank or
+  // Optional newsletter signup captured on the About-you step. The last-step
+  // button shows loading while this settles; failures are swallowed so
+  // onboarding completion never depends on the marketing site. A blank or
   // malformed email is simply skipped. Only a boolean opt-in is tracked — the
   // address itself is never sent to analytics.
-  function submitNewsletterEmail(rawEmail: string): void {
+  async function submitNewsletterEmail(rawEmail: string): Promise<void> {
     const email = rawEmail.trim().toLowerCase();
     if (!email || !NEWSLETTER_EMAIL_RE.test(email)) return;
     emitOnboardingClick('newsletter_email', 'subscribe', { newsletter_opt_in: true });
-    void fetch(NEWSLETTER_SUBSCRIBE_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, source: 'client' }),
-    }).catch(() => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    try {
+      await fetch(NEWSLETTER_SUBSCRIBE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, source: 'client' }),
+        signal: controller.signal,
+      });
+    } catch {
       // Swallow — onboarding completion must not depend on the marketing site.
-    });
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
   async function scanCliAgents() {
@@ -1622,7 +1638,9 @@ function OnboardingView({
     }
   }
 
-  const primaryActionLabel = step === 0 && amrLoginPending
+  const primaryActionLabel = isLastStep && newsletterSubmitting
+    ? t('common.loading')
+    : step === 0 && amrLoginPending
     ? t('settings.amrSigningIn')
     : step === 0 && amrSelectedAndSignedOut
       ? t('settings.amrSignInToContinue')
@@ -1900,7 +1918,8 @@ function OnboardingView({
               type="button"
               className="onboarding-view__primary"
               onClick={handlePrimaryAction}
-              disabled={amrLoginPending}
+              disabled={amrLoginPending || newsletterSubmitting}
+              aria-busy={newsletterSubmitting ? true : undefined}
             >
               <span>{primaryActionLabel}</span>
             </button>
