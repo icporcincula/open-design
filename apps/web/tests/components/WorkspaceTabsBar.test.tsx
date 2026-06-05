@@ -170,7 +170,7 @@ describe('WorkspaceTabsBar navigation semantics', () => {
     });
   });
 
-  it('appends and activates a new Home tab when Home is closed and user navigates back to Home', async () => {
+  it('keeps a singleton Home tab when restoring a Home-less workspace and navigating back to Home', async () => {
     window.localStorage.setItem(
       'open-design:workspace-tabs:v1',
       JSON.stringify({
@@ -191,21 +191,68 @@ describe('WorkspaceTabsBar navigation semantics', () => {
       <WorkspaceTabsBar route={{ ...projectRoute }} projects={[project]} />,
     );
 
+    // Restoring a Home-less saved workspace immediately mints the permanent
+    // Home tab pinned leftmost — Project Alpha sits to its right.
     await waitFor(() => {
       const labels = screen.getAllByRole('tab').map((tab) => tab.textContent ?? '');
-      expect(labels).toHaveLength(1);
-      expect(labels[0]).toContain('Project Alpha');
+      expect(labels).toEqual([
+        expect.stringContaining('Home'),
+        expect.stringContaining('Project Alpha'),
+      ]);
     });
 
-    // Navigate to Home
+    // Navigating to Home must not duplicate it.
     rerender(<WorkspaceTabsBar route={{ kind: 'home', view: 'home' }} projects={[project]} />);
 
     await waitFor(() => {
       const labels = screen.getAllByRole('tab').map((tab) => tab.textContent ?? '');
-      // It should append a new Home tab, resulting in 2 tabs total (Project Alpha and Home)
       expect(labels).toHaveLength(2);
       expect(labels.filter((label) => label.includes('Home'))).toHaveLength(1);
       expect(labels.filter((label) => label.includes('Project Alpha'))).toHaveLength(1);
+    });
+  });
+
+  it('creates a pinned Home tab when restoring saved tabs that have no Home entry', async () => {
+    // Users who closed/replaced Home before the permanent-Home feature shipped
+    // can have a saved `[project, ...]` workspace with no Home entry. Normalizing
+    // that state must mint a Home tab and pin it leftmost, not leave the workspace
+    // Home-less until the user manually navigates home.
+    window.localStorage.setItem(
+      'open-design:workspace-tabs:v1',
+      JSON.stringify({
+        activeTabId: 'project:project-alpha',
+        tabs: [
+          {
+            id: 'project:project-alpha',
+            kind: 'project',
+            projectId: 'project-alpha',
+            conversationId: null,
+            fileName: null,
+            createdAt: 1,
+            lastActiveAt: 1,
+          },
+          {
+            id: 'project:project-beta',
+            kind: 'project',
+            projectId: 'project-beta',
+            conversationId: null,
+            fileName: null,
+            createdAt: 2,
+            lastActiveAt: 2,
+          },
+        ],
+      }),
+    );
+
+    render(<WorkspaceTabsBar route={{ ...projectRoute }} projects={[project, projectBeta]} />);
+
+    await waitFor(() => {
+      const labels = screen.getAllByRole('tab').map((tab) => tab.textContent ?? '');
+      expect(labels).toEqual([
+        expect.stringContaining('Home'),
+        expect.stringContaining('Project Alpha'),
+        expect.stringContaining('Project Beta'),
+      ]);
     });
   });
 
@@ -286,7 +333,13 @@ describe('WorkspaceTabsBar navigation semantics', () => {
     });
 
     expect(allowedDefault).toBe(true);
-    expect(screen.getAllByRole('tab')).toHaveLength(1);
+    // Home is always pinned leftmost, so the project route renders Home + the
+    // project tab. The deferred shortcut must not add or change tabs.
+    const labels = screen.getAllByRole('tab').map((tab) => tab.textContent ?? '');
+    expect(labels).toEqual([
+      expect.stringContaining('Home'),
+      expect.stringContaining('Project Alpha'),
+    ]);
     expect(navigate).not.toHaveBeenCalled();
   });
 

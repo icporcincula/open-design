@@ -214,11 +214,16 @@ function normalizeTabsState(state: WorkspaceTabsState): WorkspaceTabsState {
 
   // Pin the Home tab to the leftmost position (Figma-style). It is the one
   // permanent, non-closable tab; project / marketplace tabs always sit to its
-  // right in insertion order.
+  // right in insertion order. If no Home tab survives normalization — e.g. a
+  // user who closed/replaced Home before this feature shipped reopens on a
+  // saved `[project, ...]` workspace — create one so the invariant "Home always
+  // exists and is leftmost" holds for migrated state too.
   const homeIndex = sourceTabs.findIndex(
     (tab) => tab.kind === 'entry' && tab.view === 'home',
   );
-  if (homeIndex > 0) {
+  if (homeIndex < 0) {
+    sourceTabs = [createEntryTab('home'), ...sourceTabs];
+  } else if (homeIndex > 0) {
     const [homeTab] = sourceTabs.splice(homeIndex, 1);
     sourceTabs = [homeTab!, ...sourceTabs];
   }
