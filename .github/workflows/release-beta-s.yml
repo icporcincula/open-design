@@ -610,10 +610,6 @@ jobs:
           fetch-depth: 1
           lfs: false
 
-      - name: Disable self-hosted Windows runner security checks
-        shell: pwsh
-        run: .\.github\workflow\scripts\release\runner\disable-windows-security-checks.ps1
-
       - name: Prepare self-hosted Windows toolchain
         shell: pwsh
         run: |
