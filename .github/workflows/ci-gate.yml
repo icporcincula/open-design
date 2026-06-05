@@ -90,6 +90,40 @@ jobs:
 
           jq -s . "$results"
 
+          unexpected_workflows="$(jq -r '
+            select((.label == "runner" and .name != "ci-runner") or (.label == "hosted" and .name != "ci-hosted"))
+            | "\(.label) run \(.id) is workflow \(.name // "<missing>")"
+          ' "$results")"
+          if [ -n "$unexpected_workflows" ]; then
+            echo "CI run id(s) do not match the expected workflow:"
+            echo "$unexpected_workflows"
+            exit 1
+          fi
+
+          missing_identity="$(jq -r '
+            select((.headSha == null or .headSha == "") or (.headBranch == null or .headBranch == "") or (.event == null or .event == ""))
+            | "\(.label) run \(.id) is missing headSha/headBranch/event"
+          ' "$results")"
+          if [ -n "$missing_identity" ]; then
+            echo "CI run id(s) are missing required identity fields:"
+            echo "$missing_identity"
+            exit 1
+          fi
+
+          mismatched_identity="$(jq -s -r '
+            def unique_values($key): [.[] | .[$key] | select(. != null and . != "")] | unique;
+            [
+              if (unique_values("headSha") | length) == 1 then empty else "headSha" end,
+              if (unique_values("headBranch") | length) == 1 then empty else "headBranch" end,
+              if (unique_values("event") | length) == 1 then empty else "event" end
+            ] | .[]
+          ' "$results")"
+          if [ -n "$mismatched_identity" ]; then
+            echo "CI run id(s) do not share the same identity field(s):"
+            echo "$mismatched_identity"
+            exit 1
+          fi
+
           unfinished="$(jq -r 'select(.status != "completed") | "\(.label)=\(.status)"' "$results")"
           if [ -n "$unfinished" ]; then
             echo "CI run(s) are not completed:"
