@@ -40,39 +40,49 @@ env:
   OD_CI_STEP_TIMEOUT_SECONDS: "600"
 
 jobs:
+  plan:
+    name: Hosted CI plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      modes: ${{ steps.plan.outputs.modes }}
+    steps:
+      - name: Select hosted CI modes
+        id: plan
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          case "$MODE" in
+            all)
+              modes='["probe","policy","unit","typecheck","daemon","web","build","browser"]'
+              ;;
+            probe | setup | policy | unit | typecheck | daemon | web | build | browser)
+              modes="$(jq -nc --arg mode "$MODE" '[$mode]')"
+              ;;
+            *)
+              echo "Unsupported mode: $MODE" >&2
+              exit 2
+              ;;
+          esac
+          echo "modes=$modes" >> "$GITHUB_OUTPUT"
+          echo "$modes" | jq .
+
   checks:
     name: Hosted CI ${{ matrix.mode }}
+    needs:
+      - plan
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.timeout }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - mode: probe
-            timeout: 10
-          - mode: setup
-            timeout: 30
-          - mode: policy
-            timeout: 30
-          - mode: unit
-            timeout: 30
-          - mode: typecheck
-            timeout: 30
-          - mode: daemon
-            timeout: 30
-          - mode: web
-            timeout: 30
-          - mode: build
-            timeout: 30
-          - mode: browser
-            timeout: 45
+        mode: ${{ fromJSON(needs.plan.outputs.modes) }}
     steps:
       - name: Checkout
-        if: ${{ inputs.mode == matrix.mode || (inputs.mode == 'all' && matrix.mode != 'setup') }}
         uses: actions/checkout@v6.0.2
 
       - name: Prepare package manager
-        if: ${{ inputs.mode == matrix.mode || (inputs.mode == 'all' && matrix.mode != 'setup') }}
         run: |
           set -euo pipefail
           package_manager="$(node -p "require('./package.json').packageManager")"
@@ -81,7 +91,6 @@ jobs:
           pnpm --version
 
       - name: Run CI script
-        if: ${{ inputs.mode == matrix.mode || (inputs.mode == 'all' && matrix.mode != 'setup') }}
         env:
           MATRIX_MODE: ${{ matrix.mode }}
         run: |
@@ -93,7 +102,7 @@ jobs:
           .github/workflows/scripts/ci.sh "$script_mode"
 
       - name: Upload CI manifest
-        if: ${{ always() && (inputs.mode == matrix.mode || (inputs.mode == 'all' && matrix.mode != 'setup')) }}
+        if: always()
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
@@ -105,6 +114,7 @@ jobs:
   gate:
     name: Hosted CI gate
     needs:
+      - plan
       - checks
     if: ${{ always() }}
     runs-on: ubuntu-latest
