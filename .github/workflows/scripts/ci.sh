@@ -4,7 +4,7 @@ set -Eeuo pipefail
 mode="${1:-${OD_CI_MODE:-}}"
 
 if [ -z "$mode" ]; then
-  echo "usage: $0 <probe|setup|policy|unit|typecheck|daemon|daemon-shard|web|build|browser>" >&2
+  echo "usage: $0 <probe|setup|policy|unit|typecheck|daemon|daemon-shard|daemon-parallel|web|build|browser>" >&2
   exit 2
 fi
 
@@ -43,7 +43,7 @@ capture_cmd() {
 
 require_mode() {
   case "$mode" in
-    probe | setup | policy | unit | typecheck | daemon | daemon-shard | web | build | browser) ;;
+    probe | setup | policy | unit | typecheck | daemon | daemon-shard | daemon-parallel | web | build | browser) ;;
     *)
       echo "unknown CI mode: $mode" >&2
       exit 2
@@ -66,6 +66,7 @@ playwright_install_flags="${OD_CI_PLAYWRIGHT_INSTALL_FLAGS:-chromium}"
 step_timeout_seconds="${OD_CI_STEP_TIMEOUT_SECONDS:-600}"
 corepack_home="${COREPACK_HOME:-}"
 daemon_shard="${OD_CI_DAEMON_SHARD:-}"
+daemon_max_workers="${OD_CI_DAEMON_MAX_WORKERS:-}"
 runner_name="${RUNNER_NAME:-unknown}"
 runner_os="${RUNNER_OS:-unknown}"
 runner_arch="${RUNNER_ARCH:-unknown}"
@@ -98,6 +99,9 @@ append_summary "| Ref | \`$github_ref\` |"
 append_summary "| SHA | \`$github_sha\` |"
 if [ -n "$daemon_shard" ]; then
   append_summary "| Daemon shard | \`$daemon_shard\` |"
+fi
+if [ -n "$daemon_max_workers" ]; then
+  append_summary "| Daemon max workers | \`$daemon_max_workers\` |"
 fi
 
 node_version="$(capture_cmd node node --version)"
@@ -461,7 +465,7 @@ record_daemon_result() {
   fi
 }
 
-if { [ "$mode" = "daemon" ] || [ "$mode" = "daemon-shard" ]; } && [ "$install_exit_code" = "0" ]; then
+if { [ "$mode" = "daemon" ] || [ "$mode" = "daemon-shard" ] || [ "$mode" = "daemon-parallel" ]; } && [ "$install_exit_code" = "0" ]; then
   append_summary ""
   append_summary "### Daemon workspace tests"
   append_summary ""
@@ -478,6 +482,8 @@ if { [ "$mode" = "daemon" ] || [ "$mode" = "daemon-shard" ]; } && [ "$install_ex
 
   if [ "$mode" = "daemon-shard" ]; then
     run_ci_command "@open-design/daemon test shard $daemon_shard" pnpm --filter @open-design/daemon exec vitest run -c vitest.config.ts --shard "$daemon_shard"
+  elif [ "$mode" = "daemon-parallel" ]; then
+    run_ci_command "@open-design/daemon test parallel workers ${daemon_max_workers:-4}" pnpm --filter @open-design/daemon exec vitest run -c vitest.parallel.config.ts
   else
     run_ci_command "@open-design/daemon test" pnpm --filter @open-design/daemon test
   fi
