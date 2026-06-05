@@ -233,6 +233,8 @@ describe("packaged smoke workflow", () => {
     expect(workflow).toContain(".github/workflow/scripts/release/storage/publish-beta-metadata.ts");
     expect(workflow).toContain("RELEASE_ASSET_SUFFIX: auto");
     expect(workflow).toContain("RELEASE_MANIFEST_DIR: ${{ runner.temp }}/release-platform-manifests");
+    expect(workflow).toContain("-IncludeZip $${{ inputs.win_x64_target == 'all' || inputs.win_x64_target == 'zip' }}");
+    expect(workflow).toContain("release-beta-s publish requires win_x64_target=nsis or all");
     expect(workflow).not.toContain("open-design-beta-s-win-x64-publish-manifest");
     expect(workflow).not.toContain("open-design-beta-s-mac-arm64-publish-manifest");
     expect(workflow).toContain('STATE_SOURCE: ${{ needs.metadata.outputs.state_source }}');
@@ -245,6 +247,9 @@ describe("packaged smoke workflow", () => {
     expect(publishBetaMetadataScript).toContain("manifest.github?.commit !== currentCommit");
     expect(publishBetaMetadataScript).toContain("manifest.platformKey !== target");
     expect(publishBetaMetadataScript).toContain("manifest.r2.versionPrefix.includes(`/versions/${releaseVersion}`)");
+    expect(publishBetaMetadataScript).toContain('if (assetVersionSuffix === "auto")');
+    expect(publishBetaMetadataScript).toContain('assetVersionSuffix = allReadyTargetsSigned ? ".signed" : ".unsigned";');
+    expect(publishBetaMetadataScript).toContain("const feedVersionPrefix = manifest.r2?.versionPrefix;");
     expect(publishBetaMetadataScript).toContain("refusing stale ${def.target} platform manifest");
     expect(publishBetaMetadataScript).toContain("publishLatestPlatformObjects");
     expect(platformPublishScript).not.toContain("await upload(join(releaseAssetsDir, name), `${latestPrefix}/${name}`");
@@ -505,7 +510,7 @@ describe("packaged smoke workflow", () => {
     }
   });
 
-  it("accepts target-first win_x64 platform manifests in beta metadata publish", async () => {
+  it("resolves auto asset suffix from target-first win_x64 platform manifests in beta metadata publish", async () => {
     const fixture = await startReleaseMetadataObjectStore({
       "beta/versions/1.2.3-beta.4.unsigned/latest.yml": "versioned updater feed",
     });
@@ -561,7 +566,7 @@ describe("packaged smoke workflow", () => {
           RELEASE_RUN_ATTEMPT: "2",
           RELEASE_RUN_ID: "222222222",
           RELEASE_COMMIT: "current-sha",
-          RELEASE_ASSET_SUFFIX: ".unsigned",
+          RELEASE_ASSET_SUFFIX: "auto",
           RELEASE_CHANNEL: "beta",
           RELEASE_MANIFEST_DIR: platformManifestRoot,
           RELEASE_METADATA_DIR: join(runnerTemp, "release-metadata"),
@@ -581,6 +586,7 @@ describe("packaged smoke workflow", () => {
       });
 
       const metadata = JSON.parse(await readFile(join(runnerTemp, "release-metadata", "metadata.json"), "utf8"));
+      expect(metadata.assetVersionSuffix).toBe(".unsigned");
       expect(metadata.readyTargets).toEqual(["win_x64"]);
       expect(metadata.platforms.win.r2.versionPrefix).toBe("beta/versions/1.2.3-beta.4.unsigned");
       expect(metadata.releaseTargets.win_x64.r2.versionPrefix).toBe("beta/versions/1.2.3-beta.4.unsigned");

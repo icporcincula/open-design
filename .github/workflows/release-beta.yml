@@ -320,6 +320,10 @@ jobs:
             echo "release-beta requires at least one target to be enabled" >&2
             exit 1
           fi
+          if [ "${{ inputs.publish }}" = "true" ] && [ "${{ inputs.enable_win_x64 }}" = "true" ] && [ "${{ inputs.win_x64_target }}" != "nsis" ] && [ "${{ inputs.win_x64_target }}" != "all" ]; then
+            echo "release-beta publish requires win_x64_target=nsis or all so the installer and updater feed are produced" >&2
+            exit 1
+          fi
 
       - name: Validate R2 release access
         if: ${{ inputs.publish }}
@@ -667,7 +671,8 @@ jobs:
             -ReleaseVersion "${{ needs.metadata.outputs.beta_version }}" `
             -ReleaseAssetSuffix ".unsigned" `
             -ReleaseChannel beta `
-            -ReleasePublicOrigin "${{ inputs.release_public_origin != '' && inputs.release_public_origin || vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}"
+            -ReleasePublicOrigin "${{ inputs.release_public_origin != '' && inputs.release_public_origin || vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}" `
+            -IncludeZip $${{ inputs.win_x64_target == 'all' || inputs.win_x64_target == 'zip' }}
 
       - name: Publish win_x64 platform
         if: ${{ inputs.publish }}

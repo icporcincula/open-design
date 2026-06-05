@@ -22,6 +22,7 @@ describe("release workflows", () => {
     const win = sectionBetween(beta, "  build_win_x64:", "  build_linux_x64:");
     const linux = sectionBetween(beta, "  build_linux_x64:", "  publish:");
     const selfHostedMac = sectionBetween(betaSelfHosted, "  build_mac_arm64:", "  build_win_x64:");
+    const selfHostedWin = sectionBetween(betaSelfHosted, "  build_win_x64:", "  publish:");
 
     expect(mac).toContain("bash .github/workflow/scripts/release/build-platform.sh");
     expect(selfHostedMac).toContain("fnm exec --using=24 -- bash .github/workflow/scripts/release/build-platform.sh");
@@ -34,5 +35,9 @@ describe("release workflows", () => {
     expect(win).not.toContain("--require-vela-cli");
     expect(linux).not.toContain("--require-vela-cli");
     expect(beta.match(/REQUIRE_VELA_CLI: "true"/g)?.length ?? 0).toBe(1);
+    expect(beta).toContain("release-beta publish requires win_x64_target=nsis or all");
+    expect(betaSelfHosted).toContain("release-beta-s publish requires win_x64_target=nsis or all");
+    expect(win).toContain("-IncludeZip $${{ inputs.win_x64_target == 'all' || inputs.win_x64_target == 'zip' }}");
+    expect(selfHostedWin).toContain("-IncludeZip $${{ inputs.win_x64_target == 'all' || inputs.win_x64_target == 'zip' }}");
   });
 });
