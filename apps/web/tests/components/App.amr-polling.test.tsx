@@ -25,14 +25,19 @@ vi.mock('../../src/router', () => ({
 vi.mock('../../src/components/EntryView', () => ({
   EntryView: ({
     agents,
+    config,
     onOpenSettings,
   }: {
     agents: Array<{ id: string; models?: Array<{ id: string }> }>;
+    config: AppConfig;
     onOpenSettings: () => void;
   }) => (
     <>
       <div data-testid="amr-model">
         {agents.find((agent) => agent.id === 'amr')?.models?.[0]?.id ?? 'none'}
+      </div>
+      <div data-testid="amr-profile">
+        {config.agentCliEnv?.amr?.OPEN_DESIGN_AMR_PROFILE ?? 'none'}
       </div>
       <button onClick={() => onOpenSettings()}>open settings</button>
     </>
@@ -404,5 +409,40 @@ describe('App AMR polling', () => {
       expect(screen.getByTestId('amr-model').textContent).toBe('new-probe');
     });
     expect(mockedFetchAmrModels).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes renderer config and agents after a desktop app-config change event', async () => {
+    mockedLoadConfig.mockReturnValue({
+      ...baseConfig,
+      agentCliEnv: {
+        amr: { OPEN_DESIGN_AMR_PROFILE: 'prod' },
+      },
+    });
+    mockedFetchDaemonConfig
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({
+        agentCliEnv: {
+          amr: { OPEN_DESIGN_AMR_PROFILE: 'local' },
+        },
+      });
+    mockedMergeDaemonConfig.mockImplementation((local, daemon) => ({
+      ...local,
+      agentCliEnv: daemon?.agentCliEnv ?? local.agentCliEnv,
+    }));
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('amr-profile').textContent).toBe('prod');
+    });
+
+    fireEvent(window, new CustomEvent('open-design:app-config-changed'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('amr-profile').textContent).toBe('local');
+    });
+    await waitFor(() => {
+      expect(mockedFetchAgentsStream).toHaveBeenCalledTimes(2);
+    });
   });
 });

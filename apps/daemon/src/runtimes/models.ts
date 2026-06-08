@@ -43,9 +43,13 @@ export function preferFreshLiveModels(
   return freshModels.length > 0 ? freshModels : rememberedModels;
 }
 
-export function isKnownModel(def: RuntimeAgentDef, modelId: string | null | undefined) {
+export function isKnownModel(
+  def: RuntimeAgentDef,
+  modelId: string | null | undefined,
+  scope?: string | null,
+) {
   if (!modelId) return false;
-  const live = liveModelCache.get(def.id);
+  const live = liveModelCache.get(liveModelCacheKey(def.id, scope));
   if (live && live.has(modelId)) return true;
   if (Array.isArray(def.fallbackModels)) {
     return def.fallbackModels.some((m) => m.id === modelId);

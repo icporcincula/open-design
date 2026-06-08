@@ -6,6 +6,7 @@ import { spawnEnvForAgent } from './env.js';
 import { probeAgentAuthStatus } from './auth.js';
 import { agentCapabilities } from './capabilities.js';
 import { installMetaForAgent } from './metadata.js';
+import { resolveAmrProfile } from '../integrations/vela.js';
 import {
   buildAuthDiagnostic,
   buildExecutableDiagnostic,
@@ -279,6 +280,21 @@ async function safeProbe(
   }
 }
 
+function rememberDetectedLiveModels(
+  def: RuntimeAgentDef,
+  configuredEnv: Record<string, string>,
+  agent: DetectedAgent,
+): void {
+  const scope = def.id === 'amr'
+    ? resolveAmrProfile({
+        ...process.env,
+        ...(def.env || {}),
+        ...configuredEnv,
+      })
+    : null;
+  rememberLiveModels(agent.id, agent.models, scope);
+}
+
 export async function detectAgents(
   configuredEnvByAgent: Record<string, Record<string, string>> = {},
 ) {
@@ -288,8 +304,10 @@ export async function detectAgents(
   // Refresh the validation cache from whatever we just surfaced to the UI
   // so /api/chat can accept any model the user could have just picked,
   // including ones that only showed up after a CLI re-auth.
-  for (const agent of results) {
-    rememberLiveModels(agent.id, agent.models);
+  for (const [index, agent] of results.entries()) {
+    const def = AGENT_DEFS[index];
+    if (!def) continue;
+    rememberDetectedLiveModels(def, configuredEnvByAgent?.[def.id] ?? {}, agent);
   }
   return results;
 }
@@ -305,7 +323,7 @@ export async function* detectAgentsStream(
 ): AsyncGenerator<DetectedAgent> {
   const tagged = AGENT_DEFS.map((def, index) =>
     safeProbe(def, configuredEnvByAgent?.[def.id] ?? {}).then((agent) => {
-      rememberLiveModels(agent.id, agent.models);
+      rememberDetectedLiveModels(def, configuredEnvByAgent?.[def.id] ?? {}, agent);
       return { index, agent };
     }),
   );

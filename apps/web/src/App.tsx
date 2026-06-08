@@ -113,6 +113,8 @@ import type {
   SkillSummary,
 } from './types';
 
+const APP_CONFIG_CHANGED_EVENT = 'open-design:app-config-changed';
+
 export function shouldSyncMediaProvidersOnSave(
   mediaProviders: AppConfig['mediaProviders'],
   options?: { force?: boolean },
@@ -1158,6 +1160,20 @@ function AppInner() {
     },
     [beginAgentStreamRequest, config, isCurrentAgentStreamRequest],
   );
+
+  useEffect(() => {
+    const handleAppConfigChanged = () => {
+      void fetchDaemonConfig().then((daemonConfig) => {
+        const next = mergeDaemonConfig(latestPersistedConfigRef.current, daemonConfig);
+        latestPersistedConfigRef.current = next;
+        saveConfig(next);
+        setConfig(next);
+        void refreshAgents();
+      });
+    };
+    window.addEventListener(APP_CONFIG_CHANGED_EVENT, handleAppConfigChanged);
+    return () => window.removeEventListener(APP_CONFIG_CHANGED_EVENT, handleAppConfigChanged);
+  }, [refreshAgents]);
 
   const handleCreateProject = useCallback(
     async (

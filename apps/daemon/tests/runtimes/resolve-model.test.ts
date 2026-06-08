@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   getRememberedLiveModels,
+  isKnownModel,
   preferFreshLiveModels,
   rememberLiveModels,
   resolveModelForAgent,
@@ -85,6 +86,8 @@ describe('resolveModelForAgent', () => {
     expect(getRememberedLiveModels(def.id, 'test')).toEqual([
       { id: 'test-model', label: 'test-model' },
     ]);
+    expect(isKnownModel(def, 'prod-model', 'prod')).toBe(true);
+    expect(isKnownModel(def, 'prod-model', 'test')).toBe(false);
     expect(resolveModelForAgent(def, null, {}, 'prod')).toBe('prod-model');
     expect(resolveModelForAgent(def, null, {}, 'test')).toBe('test-model');
   });
