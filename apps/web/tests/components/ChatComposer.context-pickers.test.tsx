@@ -521,6 +521,25 @@ describe('ChatComposer context pickers', () => {
     expect(screen.queryByTestId('context-chip-strip')).toBeNull();
   });
 
+  it('keeps the plugin context form when the inline plugin token has trailing punctuation', async () => {
+    renderComposer();
+    await flushMounts();
+
+    await typeAndSettle('@export');
+
+    await waitFor(() => expect(screen.getByText('My Export')).toBeTruthy());
+    fireEvent.click(screen.getByText('My Export'));
+
+    await waitFor(() => expect(composerText()).toBe('@My Export '));
+    await waitFor(() => expect(screen.getByTestId('plugin-inputs-form')).toBeTruthy());
+
+    await typeAndSettle('@My Export, refine this export');
+
+    await waitFor(() => expect(composerText()).toBe('@My Export, refine this export'));
+    expect(screen.getByTestId('plugin-inputs-form')).toBeTruthy();
+    expect(screen.getByTestId('context-chip-strip').textContent).toContain('My Export');
+  });
+
   it('sends the applied plugin snapshot as per-turn context', async () => {
     const onSend = vi.fn();
     renderComposer({ onSend });

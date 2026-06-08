@@ -1522,6 +1522,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, Props>(
         activeAppliedPlugin
         && inlineBackedPluginRef.current?.id === activeAppliedPlugin.pluginId
         && !set.has(`plugin:${activeAppliedPlugin.pluginId}`)
+        && !mentionTokenPresent(text, inlineBackedPluginRef.current.label)
       ) {
         inlineBackedPluginRef.current = null;
         pluginsSectionRef.current?.clear();
