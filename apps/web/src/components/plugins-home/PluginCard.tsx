@@ -39,6 +39,14 @@ interface Props {
     record: InstalledPluginRecord,
     action: PluginShareAction,
   ) => void;
+  // 'rich' (default) keeps the hover-overlay metadata card. 'gallery'
+  // is the minimal live-preview tile: a top bar (dot + name + open
+  // fullscreen) over an eagerly-rendered example.html iframe.
+  layout?: 'rich' | 'gallery';
+  // Gallery only: the ↗ that opens the real example page in a new tab.
+  // Fired alongside the default anchor navigation so analytics can tell
+  // "opened the finished page" apart from "opened the detail modal".
+  onOpenExternal?: (record: InstalledPluginRecord) => void;
 }
 
 const MAX_VISIBLE_TAGS = 3;
@@ -55,6 +63,8 @@ export function PluginCard({
   onOpenDetails,
   onSave,
   onShareAction,
+  layout = 'rich',
+  onOpenExternal,
 }: Props) {
   const { locale } = useI18n();
   const [useMenuOpen, setUseMenuOpen] = useState(false);
@@ -77,6 +87,71 @@ export function PluginCard({
   function pickUseAction(action: PluginUseAction) {
     setUseMenuOpen(false);
     onUse(record, action);
+  }
+
+  if (layout === 'gallery') {
+    // Live-preview tile: a macOS-window-style bar (status dot + plugin
+    // name + open-fullscreen) over an eagerly-rendered example.html
+    // iframe. The whole tile opens the detail surface; the ↗ link opens
+    // the real page in a new tab.
+    const previewSrc = preview.kind === 'html' ? preview.src : null;
+    return (
+      <article
+        role="listitem"
+        className={[
+          'plugins-home__card',
+          'plugins-home__card--gallery',
+          `plugins-home__card--${preview.kind}`,
+          isActive ? 'is-active' : '',
+          isFeatured ? 'is-featured' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+        data-plugin-id={record.id}
+        data-preview-kind={preview.kind}
+        {...(isFeatured ? { 'data-featured': 'true' } : {})}
+        tabIndex={0}
+        aria-label={title}
+        onClick={() => onOpenDetails(record)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpenDetails(record);
+          }
+        }}
+      >
+        <div className="plugins-home__gallery-bar">
+          <span className="plugins-home__gallery-dot" aria-hidden />
+          <span className="plugins-home__gallery-name" title={title}>
+            {title}
+          </span>
+          {previewSrc ? (
+            <a
+              className="plugins-home__gallery-open"
+              href={previewSrc}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenExternal?.(record);
+              }}
+              aria-label={`Open ${title} in a new tab`}
+              data-testid={`plugins-home-open-${record.id}`}
+            >
+              <Icon name="external-link" size={12} />
+            </a>
+          ) : null}
+        </div>
+        <div className="plugins-home__gallery-frame">
+          <PreviewSurface
+            pluginId={record.id}
+            pluginTitle={title}
+            preview={preview}
+            eager
+          />
+        </div>
+      </article>
+    );
   }
 
   return (

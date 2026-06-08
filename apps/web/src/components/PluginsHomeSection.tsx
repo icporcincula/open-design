@@ -39,6 +39,8 @@ interface Props {
   pendingShareAction?: { pluginId: string; action: PluginShareAction } | null;
   onUse: (record: InstalledPluginRecord, action: PluginUseAction) => void;
   onOpenDetails: (record: InstalledPluginRecord) => void;
+  // Gallery only: ↗ opens the plugin's real example page in a new tab.
+  onOpenExternal?: (record: InstalledPluginRecord) => void;
   onPluginShareAction?: (
     record: InstalledPluginRecord,
     action: PluginShareAction,
@@ -54,6 +56,9 @@ interface Props {
   title?: string;
   subtitle?: string;
   emptyMessage?: string;
+  // 'gallery' renders each card as a minimal live example.html preview
+  // tile (Community); 'rich' keeps the hover-overlay metadata card.
+  cardLayout?: 'rich' | 'gallery';
 }
 
 export function PluginsHomeSection({
@@ -64,6 +69,7 @@ export function PluginsHomeSection({
   pendingShareAction = null,
   onUse,
   onOpenDetails,
+  onOpenExternal,
   onPluginShareAction,
   onBrowseRegistry,
   preferDefaultFacet = true,
@@ -71,6 +77,7 @@ export function PluginsHomeSection({
   title,
   subtitle,
   emptyMessage,
+  cardLayout = 'rich',
 }: Props) {
   const { locale, t } = useI18n();
   const { savedPluginIds, savePluginId } = useSavedPluginIds();
@@ -212,7 +219,10 @@ export function PluginsHomeSection({
               </button>
             </div>
           ) : (
-            <div className="plugins-home__grid" role="list">
+            <div
+              className={`plugins-home__grid${cardLayout === 'gallery' ? ' plugins-home__grid--gallery' : ''}`}
+              role="list"
+            >
               {renderedPlugins.map((p) => (
                 <PluginCard
                   key={p.id}
@@ -227,6 +237,8 @@ export function PluginsHomeSection({
                   onOpenDetails={onOpenDetails}
                   onSave={handleSavePlugin}
                   onShareAction={onPluginShareAction}
+                  layout={cardLayout}
+                  {...(onOpenExternal ? { onOpenExternal } : {})}
                 />
               ))}
               {hasMorePlugins ? (
