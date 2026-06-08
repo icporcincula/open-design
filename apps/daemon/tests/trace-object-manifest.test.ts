@@ -38,17 +38,22 @@ describe('buildTraceObjectManifests', () => {
     await writeFile(path.join(projectDir, 'one.bin'), Buffer.alloc(900, 1));
     await writeFile(path.join(projectDir, 'two.bin'), Buffer.alloc(900, 2));
 
-    const fetchSpy = vi.fn(async (_url: string, init: RequestInit) => {
+    const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
       const body = init.body as string;
+      if (url.includes('/api/objects/authorize')) {
+        const parsed = JSON.parse(body) as { objects: unknown[] };
+        expect(parsed.objects).toHaveLength(2);
+        return new Response(JSON.stringify({ upload_token: 'upload-token' }), { status: 200 });
+      }
       expect(init.headers).toMatchObject({
         'X-Open-Design-Telemetry': 'object-ingestion-v1',
-        'X-Open-Design-Object-Signature': expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
-        'X-Open-Design-Object-Timestamp': expect.stringMatching(/^\d+$/),
       });
       expect(Buffer.byteLength(body, 'utf8')).toBeLessThanOrEqual(2300);
       const parsed = JSON.parse(body) as {
+        upload_token: string;
         objects: Array<{ storage_ref: string; content_base64: string }>;
       };
+      expect(parsed.upload_token).toBe('upload-token');
       expect(parsed.objects).toHaveLength(1);
       return new Response(
         JSON.stringify({
@@ -78,14 +83,13 @@ describe('buildTraceObjectManifests', () => {
       env: {
         NODE_ENV: 'test',
         OPEN_DESIGN_OBJECT_RELAY_URL: 'https://telemetry.open-design.ai/api/objects/batch',
-        OPEN_DESIGN_OBJECT_UPLOAD_SECRET: 'object-upload-secret',
         OPEN_DESIGN_OBJECT_MAX_BYTES: '1024',
         OPEN_DESIGN_OBJECT_BATCH_MAX_BYTES: '2300',
       },
       now: () => new Date('2026-06-08T00:00:00.000Z'),
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
     expect(manifests?.completeness).toBe('complete');
     expect(manifests?.artifactManifest).toHaveLength(2);
     expect(manifests?.artifactManifest?.map((entry) => entry.status)).toEqual(['ok', 'ok']);
@@ -105,7 +109,7 @@ describe('buildTraceObjectManifests', () => {
     await mkdir(path.join(projectsRoot, 'proj-1', 'uploads'), { recursive: true });
     await writeFile(path.join(projectsRoot, 'proj-1', 'uploads', 'brief.txt'), 'wrong brief');
 
-    const fetchSpy = vi.fn(async (_url: string, init: RequestInit) => {
+    const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
       const parsed = JSON.parse(init.body as string) as {
         objects: Array<{
           storage_ref: string;
@@ -114,6 +118,11 @@ describe('buildTraceObjectManifests', () => {
           content_base64: string;
         }>;
       };
+      if (url.includes('/api/objects/authorize')) {
+        expect(parsed.objects).toHaveLength(2);
+        return new Response(JSON.stringify({ upload_token: 'upload-token' }), { status: 200 });
+      }
+      expect((parsed as unknown as { upload_token: string }).upload_token).toBe('upload-token');
       expect(parsed.objects).toHaveLength(2);
       const attachment = parsed.objects.find((object) => object.object_class === 'attachment');
       const artifact = parsed.objects.find((object) => object.object_class === 'artifact');
@@ -154,12 +163,11 @@ describe('buildTraceObjectManifests', () => {
       env: {
         NODE_ENV: 'test',
         OPEN_DESIGN_OBJECT_RELAY_URL: 'https://telemetry.open-design.ai/api/objects/batch',
-        OPEN_DESIGN_OBJECT_UPLOAD_SECRET: 'object-upload-secret',
       },
       now: () => new Date('2026-06-08T00:00:00.000Z'),
     });
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(manifests?.completeness).toBe('complete');
     expect(manifests?.attachmentManifest?.[0]).toMatchObject({
       status: 'ok',
@@ -185,10 +193,14 @@ describe('buildTraceObjectManifests', () => {
     }
 
     const batchSizes: number[] = [];
-    const fetchSpy = vi.fn(async (_url: string, init: RequestInit) => {
+    const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
       const parsed = JSON.parse(init.body as string) as {
         objects: Array<{ storage_ref: string; content_base64: string }>;
       };
+      if (url.includes('/api/objects/authorize')) {
+        expect(parsed.objects).toHaveLength(101);
+        return new Response(JSON.stringify({ upload_token: 'upload-token' }), { status: 200 });
+      }
       batchSizes.push(parsed.objects.length);
       return new Response(
         JSON.stringify({
@@ -214,7 +226,6 @@ describe('buildTraceObjectManifests', () => {
       env: {
         NODE_ENV: 'test',
         OPEN_DESIGN_OBJECT_RELAY_URL: 'https://telemetry.open-design.ai/api/objects/batch',
-        OPEN_DESIGN_OBJECT_UPLOAD_SECRET: 'object-upload-secret',
       },
       now: () => new Date('2026-06-08T00:00:00.000Z'),
     });
@@ -224,12 +235,38 @@ describe('buildTraceObjectManifests', () => {
     expect(manifests?.artifactManifest).toHaveLength(101);
   });
 
-  it('does not mint object upload signatures from packaged release configuration', async () => {
+  it('uses worker-issued upload authority in production-like configuration', async () => {
     const projectsRoot = path.join(dataDir, 'projects');
     const projectDir = path.join(projectsRoot, 'proj-1');
     await mkdir(projectDir, { recursive: true });
     await writeFile(path.join(projectDir, 'artifact.txt'), 'release artifact');
-    const fetchSpy = vi.fn();
+    const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+      const parsed = JSON.parse(init.body as string) as {
+        upload_token?: string;
+        objects: Array<{ storage_ref: string; content_base64?: string }>;
+      };
+      if (url.includes('/api/objects/authorize')) {
+        expect(parsed.objects).toHaveLength(1);
+        expect(parsed.objects[0]).toMatchObject({
+          storage_ref: expect.stringContaining('/artifact/'),
+          object_class: 'artifact',
+          size_bytes: 'release artifact'.length,
+        });
+        expect(parsed.objects[0]).toHaveProperty('sha256');
+        return new Response(JSON.stringify({ upload_token: 'upload-token' }), { status: 200 });
+      }
+      expect(parsed.upload_token).toBe('upload-token');
+      return new Response(
+        JSON.stringify({
+          objects: parsed.objects.map((object) => ({
+            storage_ref: object.storage_ref,
+            status: 'available',
+            size_bytes: Buffer.from(object.content_base64!, 'base64').byteLength,
+          })),
+        }),
+        { status: 200 },
+      );
+    });
 
     const manifests = await buildTraceObjectManifests({
       installationId: 'install-1',
@@ -245,14 +282,13 @@ describe('buildTraceObjectManifests', () => {
       env: {
         NODE_ENV: 'production',
         OPEN_DESIGN_OBJECT_RELAY_URL: 'https://telemetry.open-design.ai/api/objects/batch',
-        OPEN_DESIGN_OBJECT_UPLOAD_SECRET: 'object-upload-secret',
       },
       now: () => new Date('2026-06-08T00:00:00.000Z'),
     });
 
-    expect(manifests).toBeUndefined();
-    expect(projectFileReadTracker.calls).toBe(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(manifests?.completeness).toBe('complete');
+    expect(projectFileReadTracker.calls).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
   it('skips over-limit project files before loading their contents', async () => {
@@ -276,7 +312,6 @@ describe('buildTraceObjectManifests', () => {
       env: {
         NODE_ENV: 'test',
         OPEN_DESIGN_OBJECT_RELAY_URL: 'https://telemetry.open-design.ai/api/objects/batch',
-        OPEN_DESIGN_OBJECT_UPLOAD_SECRET: 'object-upload-secret',
         OPEN_DESIGN_OBJECT_MAX_BYTES: '8',
       },
       now: () => new Date('2026-06-08T00:00:00.000Z'),

@@ -17,10 +17,10 @@ attachments, produced artifacts, and over-threshold input text snapshots, writes
 them through the `TRACE_OBJECT_BUCKET` R2 binding, and returns trace-safe
 `storage_ref` / `sha256` / size metadata for Langfuse manifests.
 
-This object ingest path is Worker/test substrate only until upload authority is
-issued by trusted server-side infrastructure. Released daemon telemetry does not
-upload trace objects or configure object relay URLs; it continues to report
-trace-safe manifests without object-backed input snapshots.
+Object ingest uses a Worker-issued short-lived upload token. Released daemon
+telemetry first requests authorization with object metadata only, then uploads
+only objects covered by that token. The long-lived signing secret stays in the
+Worker and is never packaged into the daemon/client.
 
 Local development can bypass the relay by setting direct `LANGFUSE_PUBLIC_KEY`
 and `LANGFUSE_SECRET_KEY` environment variables for the daemon. Packaged
@@ -38,14 +38,13 @@ Rate Limiting bindings for two independent keys:
   minute.
 
 Object ingest uses the same rate limit bindings with a separate marker value,
-`X-Open-Design-Telemetry: object-ingestion-v1`, plus a timestamped HMAC in
-`X-Open-Design-Object-Timestamp` and `X-Open-Design-Object-Signature` verified
-by the Worker with `TRACE_OBJECT_UPLOAD_SECRET`. Packaged daemon clients do not
-mint this authority from a shipped static secret; the daemon-side signing path is
-limited to test fixtures until upload authority can be issued by trusted
-server-side infrastructure. The Worker also requires every `storage_ref` to
-match the signed `project_id`, `run_id`, and object class payload before
-deriving an R2 key. It enforces a 50 MiB single-object limit and a 100 MiB
+`X-Open-Design-Telemetry: object-ingestion-v1`. The daemon calls
+`POST /api/objects/authorize` with `client_id`, `project_id`, `run_id`, and the
+object metadata (`storage_ref`, object class, size, and sha256); the Worker signs
+a 5-minute token scoped to exactly those objects. `POST /api/objects/batch`
+must include that token, and the Worker re-checks the namespace, size, and
+sha256 before writing to R2. The Worker also applies IP rate limiting before
+reading object bodies. It enforces a 10 MiB single-object limit and a 20 MiB
 request-body limit by default. Oversized objects are reported as unavailable
 instead of being written.
 
@@ -70,8 +69,8 @@ bucket_name = "open-design-observability"
 
 [vars]
 TRACE_OBJECT_PREFIX = "observability"
-TRACE_OBJECT_MAX_BYTES = "52428800"
-TRACE_OBJECT_BATCH_MAX_BYTES = "104857600"
+TRACE_OBJECT_MAX_BYTES = "10485760"
+TRACE_OBJECT_BATCH_MAX_BYTES = "20971520"
 ```
 
 ## Deploy

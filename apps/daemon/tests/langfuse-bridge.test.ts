@@ -440,7 +440,7 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     });
   });
 
-  it('reports trace-safe manifests without daemon object uploads', async () => {
+  it('uploads trace objects with worker-issued authority before reporting Langfuse manifests', async () => {
     await writeAppCfg({
       installationId: 'install-uuid-1',
       telemetry: { metrics: true, content: true, artifactManifest: true },
@@ -457,8 +457,44 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     );
     const tailMarker = 'TAIL_MARKER_SHOULD_NOT_REACH_LANGFUSE';
     const prompt = `${'长'.repeat(70 * 1024)}${tailMarker}`;
-    const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 207 }));
+    const fetchSpy = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.includes('/api/objects/authorize')) {
+        const parsed = JSON.parse(init.body as string) as {
+          objects: Array<{ storage_ref: string; sha256: string; size_bytes: number }>;
+        };
+        expect(parsed.objects).toHaveLength(3);
+        expect(parsed.objects.every((object) => /^sha256:[a-f0-9]{64}$/.test(object.sha256)))
+          .toBe(true);
+        expect(parsed.objects.map((object) => object.size_bytes)).toEqual([
+          'attachment body should stay out of langfuse'.length,
+          '<!doctype html><h1>artifact body</h1>'.length,
+          Buffer.byteLength(prompt, 'utf8'),
+        ]);
+        return new Response(JSON.stringify({ upload_token: 'upload-token' }), { status: 200 });
+      }
+      if (url.includes('/api/objects/batch')) {
+        const parsed = JSON.parse(init.body as string) as {
+          upload_token: string;
+          objects: Array<{ storage_ref: string; content_base64: string }>;
+        };
+        expect(parsed.upload_token).toBe('upload-token');
+        expect(parsed.objects).toHaveLength(3);
+        return new Response(
+          JSON.stringify({
+            objects: parsed.objects.map((object) => ({
+              storage_ref: object.storage_ref,
+              status: 'available',
+              size_bytes: Buffer.from(object.content_base64, 'base64').byteLength,
+              sha256: `sha256:${object.storage_ref.split('/').at(-1)}`,
+            })),
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response('{}', { status: 207 });
+    });
 
+    process.env.OPEN_DESIGN_OBJECT_RELAY_URL = 'https://telemetry.open-design.ai/api/objects/batch';
     process.env.LANGFUSE_PUBLIC_KEY = 'pk';
     process.env.LANGFUSE_SECRET_KEY = 'sk';
     try {
@@ -493,13 +529,15 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
         fetchImpl: fetchSpy as any,
       });
     } finally {
+      delete process.env.OPEN_DESIGN_OBJECT_RELAY_URL;
       delete process.env.LANGFUSE_PUBLIC_KEY;
       delete process.env.LANGFUSE_SECRET_KEY;
     }
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0]![0]).not.toContain('/api/objects/batch');
-    const langfuseInit = fetchSpy.mock.calls[0]![1] as RequestInit;
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy.mock.calls[0]![0]).toContain('/api/objects/authorize');
+    expect(fetchSpy.mock.calls[1]![0]).toContain('/api/objects/batch');
+    const langfuseInit = fetchSpy.mock.calls[2]![1] as RequestInit;
     const langfuseBody = langfuseInit.body as string;
     expect(langfuseBody).not.toContain('attachment body should stay out of langfuse');
     expect(langfuseBody).not.toContain('<!doctype html><h1>artifact body</h1>');
@@ -509,13 +547,13 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
     expect(trace.metadata.manifest_completeness).toBe('complete');
     expect(trace.metadata.attachment_manifest).toHaveLength(1);
     expect(trace.metadata.artifact_manifest).toHaveLength(1);
-    expect(trace.metadata.input_text_snapshot_manifest).toBeUndefined();
+    expect(trace.metadata.input_text_snapshot_manifest).toHaveLength(1);
     expect(trace.metadata.attachment_manifest[0]).toMatchObject({
       object_class: 'attachment',
       status: 'ok',
       stored_in_open_design: true,
       source: 'user_upload',
-      retention_policy: 'project_lifetime',
+      retention_policy: 'observability_90d',
       access_scope: 'project',
       sensitivity: 'private',
     });
@@ -524,14 +562,20 @@ describe('langfuse-bridge.reportRunCompletedFromDaemon', () => {
       status: 'ok',
       stored_in_open_design: true,
       source: 'agent_generated',
-      retention_policy: 'project_lifetime',
+      retention_policy: 'observability_90d',
+    });
+    expect(trace.metadata.input_text_snapshot_manifest[0]).toMatchObject({
+      object_class: 'input_text_snapshot',
+      status: 'ok',
+      stored_in_open_design: true,
+      source: 'user_prompt',
     });
     expect(JSON.stringify(trace.metadata)).toContain(
       'od://objects/workspaces/unknown/projects/proj-1/runs/run-id-1',
     );
   });
 
-  it('uploads nested produced files from imported project roots without leaking raw paths to Langfuse', async () => {
+  it('reports imported project nested artifact manifests without leaking raw paths to Langfuse', async () => {
     await writeAppCfg({
       installationId: 'install-uuid-1',
       telemetry: { metrics: true, content: true, artifactManifest: true },

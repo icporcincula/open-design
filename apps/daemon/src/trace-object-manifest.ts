@@ -1,4 +1,4 @@
-import { createHash, createHmac } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import type {
@@ -13,11 +13,9 @@ import { mimeFor, readProjectFile, resolveProjectFilePath } from './projects.js'
 
 const OBJECT_RELAY_MARKER_HEADER = 'X-Open-Design-Telemetry';
 const OBJECT_RELAY_MARKER_VALUE = 'object-ingestion-v1';
-const OBJECT_RELAY_SIGNATURE_HEADER = 'X-Open-Design-Object-Signature';
-const OBJECT_RELAY_TIMESTAMP_HEADER = 'X-Open-Design-Object-Timestamp';
 const DEFAULT_RETENTION_DAYS = 90;
-const DEFAULT_OBJECT_MAX_BYTES = 50 * 1024 * 1024;
-const DEFAULT_OBJECT_BATCH_MAX_BYTES = 100 * 1024 * 1024;
+const DEFAULT_OBJECT_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_OBJECT_BATCH_MAX_BYTES = 20 * 1024 * 1024;
 const OBJECT_BATCH_MAX_COUNT = 100;
 
 type ObjectClass = 'attachment' | 'artifact' | 'input_text_snapshot';
@@ -72,7 +70,7 @@ export interface TraceArtifactObjectSource {
 
 interface ObjectRelayConfig {
   url: string;
-  uploadSecret: string;
+  authorizeUrl: string;
   timeoutMs: number;
   objectMaxBytes: number;
   objectBatchMaxBytes: number;
@@ -91,7 +89,16 @@ interface ObjectRelayRequestObject {
   object_class: ObjectClass;
   filename: string;
   mime: string;
+  size_bytes: number;
+  sha256: string;
   content_base64: string;
+}
+
+interface ObjectRelayAuthorizeObject {
+  storage_ref: string;
+  object_class: ObjectClass;
+  size_bytes: number;
+  sha256: string;
 }
 
 function byteLength(value: string): number {
@@ -139,6 +146,16 @@ function inferRelayUrl(env: NodeJS.ProcessEnv): string | null {
   }
 }
 
+function inferAuthorizeUrl(batchUrl: string): string {
+  try {
+    const url = new URL(batchUrl);
+    url.pathname = url.pathname.replace(/\/api\/objects\/batch\/?$/, '/api/objects/authorize');
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return batchUrl.replace(/\/api\/objects\/batch\/?$/, '/api/objects/authorize');
+  }
+}
+
 function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   const parsed = Number.parseInt(value, 10);
@@ -148,12 +165,9 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
 function readRelayConfig(env: NodeJS.ProcessEnv): ObjectRelayConfig | null {
   const url = inferRelayUrl(env);
   if (!url) return null;
-  const uploadSecret = env.OPEN_DESIGN_OBJECT_UPLOAD_SECRET?.trim();
-  if (!uploadSecret) return null;
-  if (env.NODE_ENV !== 'test') return null;
   return {
     url,
-    uploadSecret,
+    authorizeUrl: inferAuthorizeUrl(url),
     timeoutMs: parsePositiveInt(
       env.OPEN_DESIGN_OBJECT_RELAY_TIMEOUT_MS ?? env.OPEN_DESIGN_TELEMETRY_TIMEOUT_MS,
       10_000,
@@ -167,14 +181,6 @@ function readRelayConfig(env: NodeJS.ProcessEnv): ObjectRelayConfig | null {
       DEFAULT_OBJECT_BATCH_MAX_BYTES,
     ),
   };
-}
-
-function signObjectBatch(uploadSecret: string, timestamp: string, body: string): string {
-  return `sha256:${createHmac('sha256', uploadSecret)
-    .update(timestamp)
-    .update('\n')
-    .update(body)
-    .digest('hex')}`;
 }
 
 function extensionFromName(value: string): string | undefined {
@@ -245,6 +251,20 @@ function manifestBase(
 function buildObjectBatchBody(
   opts: BuildTraceObjectManifestsOptions,
   objects: ObjectRelayRequestObject[],
+  uploadToken: string,
+): string {
+  return JSON.stringify({
+    client_id: opts.installationId ?? undefined,
+    project_id: opts.projectId,
+    run_id: opts.runId,
+    upload_token: uploadToken,
+    objects,
+  });
+}
+
+function buildAuthorizeBody(
+  opts: BuildTraceObjectManifestsOptions,
+  objects: ObjectRelayAuthorizeObject[],
 ): string {
   return JSON.stringify({
     client_id: opts.installationId ?? undefined,
@@ -258,6 +278,7 @@ function splitObjectBatches(
   config: ObjectRelayConfig,
   opts: BuildTraceObjectManifestsOptions,
   objects: ObjectRelayRequestObject[],
+  uploadToken: string,
 ): {
   batches: ObjectRelayRequestObject[][];
   overflowResults: RelayResult[];
@@ -267,7 +288,7 @@ function splitObjectBatches(
   let current: ObjectRelayRequestObject[] = [];
 
   for (const object of objects) {
-    if (byteLength(buildObjectBatchBody(opts, [object])) > config.objectBatchMaxBytes) {
+    if (byteLength(buildObjectBatchBody(opts, [object], uploadToken)) > config.objectBatchMaxBytes) {
       overflowResults.push({
         storage_ref: object.storage_ref,
         status: 'unavailable',
@@ -280,7 +301,7 @@ function splitObjectBatches(
     if (
       current.length > 0 &&
       (next.length > OBJECT_BATCH_MAX_COUNT ||
-        byteLength(buildObjectBatchBody(opts, next)) > config.objectBatchMaxBytes)
+        byteLength(buildObjectBatchBody(opts, next, uploadToken)) > config.objectBatchMaxBytes)
     ) {
       batches.push(current);
       current = [object];
@@ -293,14 +314,43 @@ function splitObjectBatches(
   return { batches, overflowResults };
 }
 
+async function authorizeObjects(
+  config: ObjectRelayConfig,
+  opts: BuildTraceObjectManifestsOptions,
+  objects: ObjectRelayAuthorizeObject[],
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  try {
+    const fetchImpl = opts.fetchImpl ?? fetch;
+    const response = await fetchImpl(config.authorizeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [OBJECT_RELAY_MARKER_HEADER]: OBJECT_RELAY_MARKER_VALUE,
+      },
+      body: buildAuthorizeBody(opts, objects),
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const parsed = await response.json().catch(() => null);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const token = (parsed as { upload_token?: unknown }).upload_token;
+    return typeof token === 'string' && token.length > 0 ? token : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function postObjects(
   config: ObjectRelayConfig,
   opts: BuildTraceObjectManifestsOptions,
   objects: ObjectRelayRequestObject[],
+  uploadToken: string,
 ): Promise<RelayResult[]> {
-  const body = buildObjectBatchBody(opts, objects);
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const signature = signObjectBatch(config.uploadSecret, timestamp, body);
+  const body = buildObjectBatchBody(opts, objects, uploadToken);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
@@ -310,8 +360,6 @@ async function postObjects(
       headers: {
         'Content-Type': 'application/json',
         [OBJECT_RELAY_MARKER_HEADER]: OBJECT_RELAY_MARKER_VALUE,
-        [OBJECT_RELAY_SIGNATURE_HEADER]: signature,
-        [OBJECT_RELAY_TIMESTAMP_HEADER]: timestamp,
       },
       body,
       signal: controller.signal,
@@ -517,15 +565,31 @@ async function postObjectBatch(
       object_class: item.source.objectClass,
       filename: item.source.filename,
       mime: item.source.mime,
+      size_bytes: item.source.body!.byteLength,
+      sha256: sha256(item.source.body!),
       content_base64: item.source.body!.toString('base64'),
     }));
 
   if (objects.length === 0) return [];
+  const authorizeObjectsBody = objects.map((object) => ({
+    storage_ref: object.storage_ref,
+    object_class: object.object_class,
+    size_bytes: object.size_bytes,
+    sha256: object.sha256,
+  }));
+  const uploadToken = await authorizeObjects(config, opts, authorizeObjectsBody);
+  if (!uploadToken) {
+    return objects.map((object) => ({
+      storage_ref: object.storage_ref,
+      status: 'unavailable',
+      reason: 'relay_authorization_failed',
+    }));
+  }
 
-  const { batches, overflowResults } = splitObjectBatches(config, opts, objects);
+  const { batches, overflowResults } = splitObjectBatches(config, opts, objects, uploadToken);
   const batchResults: RelayResult[] = [];
   for (const batch of batches) {
-    batchResults.push(...await postObjects(config, opts, batch));
+    batchResults.push(...await postObjects(config, opts, batch, uploadToken));
   }
   return [...batchResults, ...overflowResults];
 }

@@ -1,14 +1,13 @@
 const DEFAULT_LANGFUSE_BASE_URL = 'https://us.cloud.langfuse.com';
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_BATCH_EVENTS = 100;
-const DEFAULT_OBJECT_MAX_BYTES = 50 * 1024 * 1024;
-const DEFAULT_OBJECT_BATCH_MAX_BYTES = 100 * 1024 * 1024;
+const DEFAULT_OBJECT_MAX_BYTES = 10 * 1024 * 1024;
+const DEFAULT_OBJECT_BATCH_MAX_BYTES = 20 * 1024 * 1024;
 const RELAY_MARKER_HEADER = 'X-Open-Design-Telemetry';
 const RELAY_MARKER_VALUE = 'langfuse-ingestion-v1';
 const OBJECT_RELAY_MARKER_VALUE = 'object-ingestion-v1';
-const OBJECT_RELAY_SIGNATURE_HEADER = 'X-Open-Design-Object-Signature';
-const OBJECT_RELAY_TIMESTAMP_HEADER = 'X-Open-Design-Object-Timestamp';
-const OBJECT_RELAY_SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
+const OBJECT_UPLOAD_TOKEN_TTL_SECONDS = 5 * 60;
+const OBJECT_AUTHORIZE_MAX_OBJECTS = 1000;
 const ALLOWED_EVENT_TYPES = new Set([
   'trace-create',
   'span-create',
@@ -83,6 +82,23 @@ function timingSafeEqualHex(left: string, right: string): boolean {
   return diff === 0;
 }
 
+function base64UrlEncode(value: string): string {
+  return btoa(value)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function base64UrlDecode(value: string): string | null {
+  try {
+    const padded = value.replace(/-/g, '+').replace(/_/g, '/')
+      .padEnd(Math.ceil(value.length / 4) * 4, '=');
+    return atob(padded);
+  } catch {
+    return null;
+  }
+}
+
 async function hmacSha256Hex(secret: string, value: string): Promise<string> {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -96,6 +112,127 @@ async function hmacSha256Hex(secret: string, value: string): Promise<string> {
   return [...new Uint8Array(signature)]
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
+}
+
+interface ObjectUploadScopeObject {
+  storage_ref: string;
+  object_class: string;
+  size_bytes: number;
+  sha256: string;
+}
+
+interface ObjectUploadTokenPayload {
+  version: 1;
+  client_id: string;
+  project_id: string;
+  run_id: string;
+  exp: number;
+  objects: ObjectUploadScopeObject[];
+}
+
+function isAllowedObjectClass(value: unknown): value is 'attachment' | 'artifact' | 'input_text_snapshot' {
+  return (
+    typeof value === 'string' &&
+    ['attachment', 'artifact', 'input_text_snapshot'].includes(value)
+  );
+}
+
+function objectScopeKey(object: Pick<ObjectUploadScopeObject, 'storage_ref' | 'object_class'>): string {
+  return `${object.object_class}\n${object.storage_ref}`;
+}
+
+function validateObjectScopeBody(value: unknown, maxObjects: number): string | null {
+  if (!isRecord(value)) return 'body must be a JSON object';
+  if (typeof value.client_id !== 'string' || value.client_id.length === 0) {
+    return 'body.client_id must be a string';
+  }
+  if (typeof value.project_id !== 'string' || value.project_id.length === 0) {
+    return 'body.project_id must be a string';
+  }
+  if (typeof value.run_id !== 'string' || value.run_id.length === 0) {
+    return 'body.run_id must be a string';
+  }
+  if (!Array.isArray(value.objects)) return 'body.objects must be an array';
+  if (value.objects.length === 0) return 'body.objects must not be empty';
+  if (value.objects.length > maxObjects) return 'body.objects has too many objects';
+
+  for (const [index, object] of value.objects.entries()) {
+    if (!isRecord(object)) return `body.objects[${index}] must be an object`;
+    if (typeof object.storage_ref !== 'string' || !object.storage_ref.startsWith('od://objects/')) {
+      return `body.objects[${index}].storage_ref must be an od://objects reference`;
+    }
+    if (!isAllowedObjectClass(object.object_class)) {
+      return `body.objects[${index}].object_class must be an allowed object class`;
+    }
+    const expectedPrefix = expectedStorageRefPrefix(
+      value.project_id,
+      value.run_id,
+      object.object_class,
+    );
+    if (!expectedPrefix || !object.storage_ref.startsWith(expectedPrefix)) {
+      return `body.objects[${index}].storage_ref must match the project, run, and object class`;
+    }
+    if (
+      typeof object.size_bytes !== 'number' ||
+      !Number.isFinite(object.size_bytes) ||
+      object.size_bytes < 0
+    ) {
+      return `body.objects[${index}].size_bytes must be a non-negative number`;
+    }
+    if (
+      typeof object.sha256 !== 'string' ||
+      !/^sha256:[a-f0-9]{64}$/i.test(object.sha256)
+    ) {
+      return `body.objects[${index}].sha256 must be a sha256 hex digest`;
+    }
+  }
+  return null;
+}
+
+async function signUploadToken(
+  env: Env,
+  payload: ObjectUploadTokenPayload,
+): Promise<string | null> {
+  const uploadSecret = env.TRACE_OBJECT_UPLOAD_SECRET?.trim();
+  if (!uploadSecret) return null;
+  const payloadPart = base64UrlEncode(JSON.stringify(payload));
+  const signature = await hmacSha256Hex(uploadSecret, payloadPart);
+  return `${payloadPart}.${signature}`;
+}
+
+async function verifyUploadToken(
+  env: Env,
+  token: string,
+): Promise<ObjectUploadTokenPayload | null> {
+  const uploadSecret = env.TRACE_OBJECT_UPLOAD_SECRET?.trim();
+  if (!uploadSecret) return null;
+  const [payloadPart, signaturePart, ...rest] = token.split('.');
+  if (!payloadPart || !signaturePart || rest.length > 0) return null;
+  if (!/^[a-f0-9]{64}$/i.test(signaturePart)) return null;
+  const expected = await hmacSha256Hex(uploadSecret, payloadPart);
+  if (!timingSafeEqualHex(expected, signaturePart.toLowerCase())) return null;
+  const decoded = base64UrlDecode(payloadPart);
+  if (!decoded) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || parsed.version !== 1) return null;
+  if (
+    typeof parsed.client_id !== 'string' ||
+    typeof parsed.project_id !== 'string' ||
+    typeof parsed.run_id !== 'string' ||
+    typeof parsed.exp !== 'number' ||
+    !Array.isArray(parsed.objects)
+  ) {
+    return null;
+  }
+  const validationError = validateObjectScopeBody(parsed, OBJECT_AUTHORIZE_MAX_OBJECTS);
+  if (validationError != null) return null;
+  if (Math.floor(Date.now() / 1000) > parsed.exp) return null;
+  return parsed as unknown as ObjectUploadTokenPayload;
 }
 
 function basicAuthHeader(publicKey: string, secretKey: string): string {
@@ -295,6 +432,9 @@ function validateObjectBody(value: unknown): string | null {
   if (typeof value.run_id !== 'string' || value.run_id.length === 0) {
     return 'body.run_id must be a string';
   }
+  if (typeof value.upload_token !== 'string' || value.upload_token.length === 0) {
+    return 'body.upload_token must be a string';
+  }
   if (!Array.isArray(value.objects)) return 'body.objects must be an array';
   if (value.objects.length === 0) return 'body.objects must not be empty';
   if (value.objects.length > 100) return 'body.objects has too many objects';
@@ -304,10 +444,7 @@ function validateObjectBody(value: unknown): string | null {
     if (typeof object.storage_ref !== 'string' || !object.storage_ref.startsWith('od://objects/')) {
       return `body.objects[${index}].storage_ref must be an od://objects reference`;
     }
-    if (
-      typeof object.object_class !== 'string' ||
-      !['attachment', 'artifact', 'input_text_snapshot'].includes(object.object_class)
-    ) {
+    if (!isAllowedObjectClass(object.object_class)) {
       return `body.objects[${index}].object_class must be an allowed object class`;
     }
     const expectedPrefix = expectedStorageRefPrefix(
@@ -328,36 +465,55 @@ function validateObjectBody(value: unknown): string | null {
   return null;
 }
 
-async function verifyObjectUploadAuthority(
-  request: Request,
-  env: Env,
-  rawBody: string,
-): Promise<Response | null> {
-  const uploadSecret = env.TRACE_OBJECT_UPLOAD_SECRET?.trim();
-  if (!uploadSecret) return jsonResponse(503, { error: 'object relay upload authority is not configured' });
-
-  const timestampRaw = request.headers.get(OBJECT_RELAY_TIMESTAMP_HEADER)?.trim();
-  const signatureRaw = request.headers.get(OBJECT_RELAY_SIGNATURE_HEADER)?.trim();
-  if (!timestampRaw || !signatureRaw?.startsWith('sha256:')) {
-    return jsonResponse(403, { error: 'missing object upload authority' });
+async function handleObjectAuthorizeRequest(request: Request, env: Env): Promise<Response> {
+  if (request.headers.get(RELAY_MARKER_HEADER) !== OBJECT_RELAY_MARKER_VALUE) {
+    return jsonResponse(403, { error: 'missing object client marker' });
   }
+  if (!hasObjectRelayConfig(env)) {
+    return jsonResponse(503, { error: 'object relay upload authority is not configured' });
+  }
+  const contentType = request.headers.get('content-type') ?? '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    return jsonResponse(415, { error: 'content-type must be application/json' });
+  }
+  const ipRateLimitResponse = await enforceIpRateLimit(request, env);
+  if (ipRateLimitResponse) return ipRateLimitResponse;
 
-  const timestamp = Number(timestampRaw);
+  const rawBody = await readBoundedBody(request);
+  if (rawBody instanceof Response) return rawBody;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    return jsonResponse(400, { error: 'invalid JSON' });
+  }
+  const validationError = validateObjectScopeBody(parsed, OBJECT_AUTHORIZE_MAX_OBJECTS);
+  if (validationError != null) return jsonResponse(400, { error: validationError });
+
+  const rateLimitResponse = await enforceClientRateLimit(env, parsed, findObjectClientId);
+  if (rateLimitResponse) return rateLimitResponse;
+
   const now = Math.floor(Date.now() / 1000);
-  if (
-    !Number.isFinite(timestamp) ||
-    Math.abs(now - timestamp) > OBJECT_RELAY_SIGNATURE_MAX_AGE_SECONDS
-  ) {
-    return jsonResponse(403, { error: 'stale object upload authority' });
-  }
-
-  const expected = await hmacSha256Hex(uploadSecret, `${timestampRaw}\n${rawBody}`);
-  const supplied = signatureRaw.slice('sha256:'.length);
-  if (!/^[a-f0-9]{64}$/i.test(supplied) || !timingSafeEqualHex(expected, supplied.toLowerCase())) {
-    return jsonResponse(403, { error: 'invalid object upload authority' });
-  }
-
-  return null;
+  const payload = parsed as {
+    client_id: string;
+    project_id: string;
+    run_id: string;
+    objects: ObjectUploadScopeObject[];
+  };
+  const token = await signUploadToken(env, {
+    version: 1,
+    client_id: payload.client_id,
+    project_id: payload.project_id,
+    run_id: payload.run_id,
+    exp: now + OBJECT_UPLOAD_TOKEN_TTL_SECONDS,
+    objects: payload.objects,
+  });
+  if (!token) return jsonResponse(503, { error: 'object relay upload authority is not configured' });
+  return jsonResponse(200, {
+    upload_token: token,
+    expires_at: new Date((now + OBJECT_UPLOAD_TOKEN_TTL_SECONDS) * 1000).toISOString(),
+  });
 }
 
 async function handleObjectBatchRequest(request: Request, env: Env): Promise<Response> {
@@ -383,9 +539,6 @@ async function handleObjectBatchRequest(request: Request, env: Env): Promise<Res
   const rawBody = await readBoundedBodyWithLimit(request, batchMaxBytes);
   if (rawBody instanceof Response) return rawBody;
 
-  const authorityResponse = await verifyObjectUploadAuthority(request, env, rawBody);
-  if (authorityResponse) return authorityResponse;
-
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawBody);
@@ -397,6 +550,26 @@ async function handleObjectBatchRequest(request: Request, env: Env): Promise<Res
   if (validationError != null) {
     return jsonResponse(400, { error: validationError });
   }
+  if (!env.TRACE_OBJECT_UPLOAD_SECRET?.trim()) {
+    return jsonResponse(503, { error: 'object relay upload authority is not configured' });
+  }
+  const uploadToken = (parsed as { upload_token: string }).upload_token;
+  const tokenPayload = await verifyUploadToken(env, uploadToken);
+  if (!tokenPayload) return jsonResponse(403, { error: 'invalid object upload authority' });
+  const body = parsed as {
+    client_id: string;
+    project_id: string;
+    run_id: string;
+    objects: Array<Record<string, unknown>>;
+  };
+  if (
+    body.client_id !== tokenPayload.client_id ||
+    body.project_id !== tokenPayload.project_id ||
+    body.run_id !== tokenPayload.run_id
+  ) {
+    return jsonResponse(403, { error: 'object upload authority scope mismatch' });
+  }
+  const allowedByKey = new Map(tokenPayload.objects.map((object) => [objectScopeKey(object), object]));
 
   const rateLimitResponse = await enforceClientRateLimit(
     env,
@@ -409,8 +582,16 @@ async function handleObjectBatchRequest(request: Request, env: Env): Promise<Res
   const prefix = normalizeObjectPrefix(env.TRACE_OBJECT_PREFIX);
   const results: Array<Record<string, unknown>> = [];
 
-  for (const object of (parsed as { objects: Array<Record<string, unknown>> }).objects) {
+  for (const object of body.objects) {
     const storageRef = object.storage_ref as string;
+    const authorized = allowedByKey.get(objectScopeKey({
+      storage_ref: storageRef,
+      object_class: object.object_class as string,
+    }));
+    if (!authorized) {
+      results.push({ storage_ref: storageRef, status: 'unavailable', reason: 'unauthorized_object' });
+      continue;
+    }
     const key = keyFromStorageRef(storageRef, prefix);
     if (!key) {
       results.push({ storage_ref: storageRef, status: 'unavailable', reason: 'invalid_storage_ref' });
@@ -433,6 +614,16 @@ async function handleObjectBatchRequest(request: Request, env: Env): Promise<Res
     }
 
     const sha256 = `sha256:${await sha256Hex(bytes)}`;
+    if (bytes.byteLength !== authorized.size_bytes || sha256 !== authorized.sha256.toLowerCase()) {
+      results.push({
+        storage_ref: storageRef,
+        status: 'unavailable',
+        reason: 'object_authority_mismatch',
+        size_bytes: bytes.byteLength,
+        sha256,
+      });
+      continue;
+    }
     await env.TRACE_OBJECT_BUCKET.put(key, bytes, {
       httpMetadata: {
         contentType: typeof object.mime === 'string' ? object.mime : 'application/octet-stream',
@@ -471,6 +662,9 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
   const { pathname } = new URL(request.url);
   if (pathname === '/api/objects/batch') {
     return handleObjectBatchRequest(request, env);
+  }
+  if (pathname === '/api/objects/authorize') {
+    return handleObjectAuthorizeRequest(request, env);
   }
 
   if (request.headers.get(RELAY_MARKER_HEADER) !== RELAY_MARKER_VALUE) {

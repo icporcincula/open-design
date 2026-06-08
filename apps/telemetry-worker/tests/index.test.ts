@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import worker, { type Env } from '../src/index';
@@ -27,25 +27,70 @@ function makeRateLimiter(success: boolean) {
   };
 }
 
-function signedObjectHeaders(bodyText: string): Record<string, string> {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
+function objectRelayHeaders(): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     'X-Open-Design-Telemetry': 'object-ingestion-v1',
-    'X-Open-Design-Object-Timestamp': timestamp,
-    'X-Open-Design-Object-Signature': `sha256:${createHmac('sha256', objectUploadSecret)
-      .update(timestamp)
-      .update('\n')
-      .update(bodyText)
-      .digest('hex')}`,
   };
 }
 
+function base64Url(value: string): string {
+  return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function uploadToken(scope: Record<string, unknown>): string {
+  const payload = base64Url(JSON.stringify({
+    version: 1,
+    exp: Math.floor(Date.now() / 1000) + 300,
+    ...scope,
+  }));
+  const signature = createHmac('sha256', objectUploadSecret).update(payload).digest('hex');
+  return `${payload}.${signature}`;
+}
+
+function requireSha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 function makeObjectRequest(body: unknown): Request {
-  const bodyText = JSON.stringify(body);
+  let requestBody = body;
+  if (
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    !('upload_token' in body) &&
+    Array.isArray((body as { objects?: unknown }).objects)
+  ) {
+    const objectBody = body as {
+      client_id?: string;
+      project_id?: string;
+      run_id?: string;
+      objects: Array<Record<string, unknown>>;
+    };
+    requestBody = {
+      ...objectBody,
+      upload_token: uploadToken({
+        client_id: objectBody.client_id ?? 'installation-1',
+        project_id: objectBody.project_id ?? 'proj-1',
+        run_id: objectBody.run_id ?? 'run-1',
+        objects: objectBody.objects.map((object) => {
+          const content = typeof object.content_base64 === 'string'
+            ? Buffer.from(object.content_base64, 'base64')
+            : Buffer.alloc(0);
+          return {
+            storage_ref: object.storage_ref,
+            object_class: object.object_class,
+            size_bytes: content.byteLength,
+            sha256: `sha256:${createHash('sha256').update(content).digest('hex')}`,
+          };
+        }),
+      }),
+    };
+  }
+  const bodyText = JSON.stringify(requestBody);
   return new Request('https://telemetry.open-design.ai/api/objects/batch', {
     method: 'POST',
-    headers: signedObjectHeaders(bodyText),
+    headers: objectRelayHeaders(),
     body: bodyText,
   });
 }
@@ -242,6 +287,43 @@ describe('telemetry worker', () => {
     fetchSpy.mockRestore();
   });
 
+  it('issues short-lived object upload tokens scoped to declared objects', async () => {
+    const content = 'hello object';
+    const response = await worker.fetch(
+      new Request('https://telemetry.open-design.ai/api/objects/authorize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Open-Design-Telemetry': 'object-ingestion-v1',
+          'CF-Connecting-IP': '203.0.113.10',
+        },
+        body: JSON.stringify({
+          client_id: 'installation-1',
+          project_id: 'proj-1',
+          run_id: 'run-1',
+          objects: [
+            {
+              storage_ref: 'od://objects/workspaces/unknown/projects/proj-1/runs/run-1/attachment/att-1/brief.txt',
+              object_class: 'attachment',
+              size_bytes: content.length,
+              sha256: `sha256:${requireSha256(content)}`,
+            },
+          ],
+        }),
+      }),
+      {
+        ...env,
+        TRACE_OBJECT_BUCKET: { put: vi.fn() },
+        TRACE_OBJECT_UPLOAD_SECRET: objectUploadSecret,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { upload_token?: string; expires_at?: string };
+    expect(body.upload_token).toEqual(expect.stringMatching(/^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/));
+    expect(body.expires_at).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
+  });
+
   it('rejects object batches without the object marker', async () => {
     const response = await worker.fetch(
       new Request('https://telemetry.open-design.ai/api/objects/batch', {
@@ -255,7 +337,7 @@ describe('telemetry worker', () => {
     expect(response.status).toBe(403);
   });
 
-  it('rejects marker-only object batches without upload authority', async () => {
+  it('rejects marker-only object batches without upload token', async () => {
     const put = vi.fn(async () => ({}));
     const response = await worker.fetch(
       makeUnsignedObjectRequest({
@@ -278,7 +360,10 @@ describe('telemetry worker', () => {
       },
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: 'body.upload_token must be a string',
+    });
     expect(put).not.toHaveBeenCalled();
   });
 
