@@ -65,7 +65,7 @@ function getAddressDisplay(container: HTMLElement) {
 }
 
 describe('DesignBrowserPanel <webview> navigation', () => {
-  it('keeps external browser mutation and annotation tools hidden', () => {
+  it('keeps desktop browser tools available on the supported webview path', () => {
     render(
       <DesignBrowserPanel
         projectId="proj-webview-more-tools"
@@ -78,17 +78,16 @@ describe('DesignBrowserPanel <webview> navigation', () => {
 
     expect(screen.queryByRole('button', { name: 'Tune element' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Edit live DOM' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Mark' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Mark' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Comment' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Screenshot' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Browser menu' }));
 
-    expect(screen.queryByRole('menuitem', { name: /Tune Element/ })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: /Edit Live DOM/ })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: /Edit HTML/ })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'Mark' })).toBeNull();
-    expect(screen.queryByRole('menuitem', { name: 'Comment' })).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /Tune Element/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: /Edit Live DOM/ })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Mark' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Comment' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'Copy Screenshot' })).toBeTruthy();
   });
 
@@ -377,7 +376,7 @@ describe('DesignBrowserPanel <webview> navigation', () => {
     expect(container.querySelector('.db-comment-marker')).toBeNull();
   });
 
-  it('does not expose page annotation controls in the external browser', () => {
+  it('reuses the artifact mark label and icon for page annotation', () => {
     const { container } = render(
       <I18nProvider initial="zh-CN">
         <DesignBrowserPanel
@@ -389,13 +388,14 @@ describe('DesignBrowserPanel <webview> navigation', () => {
       </I18nProvider>,
     );
 
-    expect(screen.queryByRole('button', { name: '标记' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '评论' })).toBeNull();
+    const markButton = screen.getByRole('button', { name: '标记' });
+    expect(markButton.parentElement?.getAttribute('data-tooltip')).toBe('标记');
+    expect(markButton.querySelector('.ri-mark-pen-line')).not.toBeNull();
     expect(container.querySelector('.ri-pencil-line')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Annotate page' })).toBeNull();
   });
 
-  it('does not start browser element comments from the external browser toolbar', () => {
+  it('queues browser element comments while the chat run is busy', async () => {
     const onSendBoardCommentAttachments = vi.fn(async (_attachments: unknown[], _images?: File[]) => undefined);
     const { container } = render(
       <DesignBrowserPanel
@@ -411,17 +411,40 @@ describe('DesignBrowserPanel <webview> navigation', () => {
     const webview = container.querySelector('webview.db-webview') as HTMLElement & {
       executeJavaScript?: ReturnType<typeof vi.fn>;
     };
-    webview.executeJavaScript = vi.fn();
+    webview.executeJavaScript = vi.fn()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({
+        elementId: 'dom:h1',
+        filePath: 'browser:https://example.com',
+        htmlHint: '<h1>',
+        label: 'h1',
+        position: { x: 24, y: 32, width: 360, height: 72 },
+        selector: 'h1',
+        selectionKind: 'element',
+        style: { color: 'rgb(13, 12, 34)', fontSize: '48px', lineHeight: '52px' },
+        text: 'Example heading',
+      });
 
-    expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Browser menu' }));
-    expect(screen.queryByRole('menuitem', { name: 'Comment' })).toBeNull();
-    expect(screen.queryByTestId('comment-popover-input')).toBeNull();
-    expect(onSendBoardCommentAttachments).not.toHaveBeenCalled();
-    expect(webview.executeJavaScript).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+
+    const textarea = await screen.findByTestId('comment-popover-input');
+    fireEvent.change(textarea, { target: { value: 'Make this heading tighter' } });
+
+    const sendButton = screen.getByTestId('comment-add-send') as HTMLButtonElement;
+    expect(sendButton.textContent).toBe('Queue');
+    expect(sendButton.disabled).toBe(false);
+
+    fireEvent.click(sendButton);
+
+    await waitFor(() => expect(onSendBoardCommentAttachments).toHaveBeenCalledTimes(1));
+    expect(onSendBoardCommentAttachments.mock.calls[0]?.[0]?.[0]).toMatchObject({
+      comment: 'Make this heading tighter',
+      elementId: 'dom:h1',
+      filePath: 'browser:https://example.com',
+    });
   });
 
-  it('does not render saved browser comment markers in the external browser', async () => {
+  it('repositions saved browser comment markers from live webview selector measurements', async () => {
     const previewComments = [{
       id: 'comment-1',
       projectId: 'proj-webview-live-comment-marker',
@@ -451,17 +474,27 @@ describe('DesignBrowserPanel <webview> navigation', () => {
     const webview = container.querySelector('webview.db-webview') as HTMLElement & {
       executeJavaScript?: ReturnType<typeof vi.fn>;
     };
-    webview.executeJavaScript = vi.fn(async () => []);
+    webview.executeJavaScript = vi.fn(async () => [{
+      key: 'comment:comment-1',
+      elementId: 'dom:#card',
+      selector: '#card',
+      label: 'article.card',
+      text: 'Card',
+      position: { x: 140, y: 36, width: 240, height: 160 },
+      htmlHint: '<article id="card">',
+      style: {},
+      selectionKind: 'element',
+    }]);
 
-    await waitFor(() => expect(webview.executeJavaScript).toHaveBeenCalled());
-    expect(container.querySelector('.db-comment-layer')).toBeNull();
-    expect(container.querySelector('.db-comment-marker')).toBeNull();
+    await waitFor(() => {
+      expect(container.querySelector<HTMLElement>('.db-comment-marker')?.style.left).toBe('140px');
+    });
   });
 
-  it('keeps browser screenshot capture available after hiding annotation tools', async () => {
+  it('hides open annotation chrome while taking a browser screenshot', async () => {
     restoreHost?.();
     const capturePage = vi.fn(async () => {
-      expect(document.querySelector('.preview-draw-toolbar')).toBeNull();
+      expect(document.querySelector<HTMLElement>('.preview-draw-toolbar')?.style.visibility).toBe('hidden');
       return { ok: true as const, dataUrl: 'data:image/png;base64,cG5n', w: 10, h: 10 };
     });
     restoreHost = installMockOpenDesignHost({
@@ -477,8 +510,8 @@ describe('DesignBrowserPanel <webview> navigation', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: 'Mark' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Comment' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Mark' }));
+    expect(container.querySelector('.preview-draw-toolbar')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Screenshot' }));
 
