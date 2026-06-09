@@ -771,6 +771,21 @@ export function FileWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shareRequest]);
 
+  // Download request: same as shareRequest, but the FileViewer opens its
+  // Download/Export menu. Without this, Download did nothing whenever the target
+  // artifact was not already the active tab (it forwards only on a name match).
+  useEffect(() => {
+    if (!downloadRequest) return;
+    const name = downloadRequest.name;
+    if (!name) return;
+    commitTabsState(workspaceTabsState(
+      persistedTabs.includes(name) ? persistedTabs : [...persistedTabs, name],
+      name,
+    ));
+    setActiveTab(name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [downloadRequest]);
+
   // Slide-nav request: decide deliverability once, at fire time. Only if the
   // named deck is already an open tab do we mark this nonce deliverable and
   // bring it forward so the matching FileViewer is mounted and flips. We never
