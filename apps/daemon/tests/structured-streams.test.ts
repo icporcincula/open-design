@@ -204,7 +204,7 @@ describe('structured agent stream fixtures', () => {
     })).toBe(false);
   });
 
-  it('suppresses duplicate Claude artifact text when plain prose arrives before the artifact chunk', () => {
+  it('preserves later Claude artifact text after plain prose clears file-write suppression', () => {
     const events: unknown[] = [];
     const handler = createClaudeStreamHandler((event: unknown) => events.push(event));
     handler.feed(`${JSON.stringify({
@@ -258,13 +258,8 @@ describe('structured agent stream fixtures', () => {
     });
     expect(events).toContainEqual({
       type: 'text_delta',
-      delta: 'Done',
+      delta: '<artifact identifier="page" type="text/html">\\n<!doctype html><html></html>\\n</artifact>Done',
     });
-    expect(events.some((event) => {
-      if (typeof event !== 'object' || event === null) return false;
-      const record = event as { type?: string; delta?: string };
-      return record.type === 'text_delta' && typeof record.delta === 'string' && record.delta.includes('<!doctype html>');
-    })).toBe(false);
   });
 
   it('emits Claude prose immediately after a file write when no artifact follows', () => {

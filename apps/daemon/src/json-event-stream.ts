@@ -434,6 +434,7 @@ function stripDuplicateArtifactText(text: string, state: ParserState): string {
       return current.slice(0, -candidateLength);
     }
     if (state.suppressNextArtifactText) {
+      state.suppressNextArtifactText = false;
       return current;
     }
     return current;

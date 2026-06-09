@@ -226,6 +226,7 @@ export function createClaudeStreamHandler(onEvent: EventSink) {
         return current.slice(0, -candidateLength);
       }
       if (suppressNextArtifactText) {
+        suppressNextArtifactText = false;
         return current;
       }
       return current;

@@ -397,7 +397,7 @@ test('gemini stream suppresses duplicate artifact text split across chunks', () 
   ]);
 });
 
-test('gemini stream suppresses duplicate artifact text when plain prose arrives before the artifact chunk', () => {
+test('gemini stream preserves later artifact text after plain prose clears file-write suppression', () => {
   const { events, handler } = collectEvents('gemini');
 
   handler.feed(
@@ -441,7 +441,7 @@ test('gemini stream suppresses duplicate artifact text when plain prose arrives 
     },
     {
       type: 'text_delta',
-      delta: 'Tail',
+      delta: '<artifact identifier="page" type="text/html">\\n<!doctype html><html></html>\\n</artifact>Tail',
     },
   ]);
 });
