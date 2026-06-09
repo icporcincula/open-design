@@ -80,16 +80,24 @@ jobs:
           echo "--- baked dir ---"; ls -la .tmp/plugin-previews
 
       - name: Upload clips to R2
-        if: ${{ github.ref == 'refs/heads/main' }} # branch debug runs skip publishing
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/plugin-preview-video' }} # TEMP: also publish on the debug branch to verify R2 — revert to main-only before merge
+        # Publishes to the repository-assets R2 bucket; the deployed daemon must
+        # set OD_PLUGIN_PREVIEWS_BASE_URL to
+        # https://repo-assets.open-design.ai/plugin-previews so its bakedPreview
+        # URLs point here (CLOUDFLARE_R2_REPOSITORY_ASSETS_PUBLIC_ORIGIN).
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_REPOSITORY_ASSETS_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_REPOSITORY_ASSETS_SK }}
           AWS_DEFAULT_REGION: auto
+          AWS_EC2_METADATA_DISABLED: 'true'
+          R2_BUCKET: ${{ secrets.CLOUDFLARE_R2_REPOSITORY_ASSETS_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_REPOSITORY_ASSETS_URL }}
         run: |
+          endpoint="${R2_ENDPOINT%/}"
           # cp (not sync --delete) so untouched clips already on R2 stay put.
-          aws s3 cp .tmp/plugin-previews "s3://${{ secrets.R2_BUCKET }}/plugin-previews/" \
+          aws s3 cp .tmp/plugin-previews "s3://$R2_BUCKET/plugin-previews/" \
             --recursive --no-progress \
-            --endpoint-url "${{ secrets.R2_ENDPOINT }}" \
+            --endpoint-url "$endpoint" \
             --exclude manifest.json
 
       - name: Open manifest PR for review
