@@ -339,6 +339,18 @@ async function bakeOne(browser, id, hash, motion) {
 
   const maxY = (isDeck || isStatic) ? 0 : await page.evaluate(() =>
     Math.max(0, document.documentElement.scrollHeight - window.innerHeight));
+  // Detect the scroll mechanism BEFORE recording: this probe jumps the page
+  // (scrollTo 160 -> 0), which once the screencast is running would bake a
+  // visible lurch at the head of the pan. Ordinary pages scroll via
+  // window.scrollTo; scroll-hijack landing pages (custom / transform scroll)
+  // ignore it and need real wheel events to drive their own scroll handler.
+  const windowScrolls = maxY > 0 && (await page.evaluate(() => {
+    const before = window.scrollY || document.documentElement.scrollTop;
+    window.scrollTo(0, 160);
+    const moved = (window.scrollY || document.documentElement.scrollTop) > before + 40;
+    window.scrollTo(0, 0);
+    return moved;
+  }));
 
   await client.send('Page.startScreencast',
     { format: 'jpeg', quality: 80, everyNthFrame: 1, maxWidth: capW, maxHeight: capH });
@@ -360,17 +372,8 @@ async function bakeOne(browser, id, hash, motion) {
     // bottom within MAX_PAN (whole clip stays ~<=10s): base VELOCITY for normal
     // pages, auto-sped-up (capped duration) for tall ones.
     durMs = Math.min(MAX_PAN, Math.round(maxY / VELOCITY));
-    // Ordinary pages scroll via window.scrollTo (smooth rAF). Scroll-hijack
-    // landing pages (custom / transform scroll — Lenis-style) ignore it, so
-    // detect that and pan them with REAL wheel events instead, which trigger the
-    // page's own scroll handler.
-    const windowScrolls = await page.evaluate(() => {
-      const before = window.scrollY || document.documentElement.scrollTop;
-      window.scrollTo(0, 160);
-      const moved = (window.scrollY || document.documentElement.scrollTop) > before + 40;
-      window.scrollTo(0, 0);
-      return moved;
-    });
+    // Smooth rAF window.scrollTo for ordinary pages; real wheel events for
+    // scroll-hijack pages (windowScrolls probed above, before recording).
     if (windowScrolls) {
       await page.evaluate((dur, my) => new Promise((res) => {
         let start = null;
