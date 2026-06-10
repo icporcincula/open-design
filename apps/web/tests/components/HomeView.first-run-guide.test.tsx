@@ -145,6 +145,53 @@ describe('Home first-run guide trail', () => {
     });
   });
 
+  it('carries beat 2 through the static prompt-example fallback', async () => {
+    // The chip's default plugin exists (so the chip binds) but nothing
+    // matches the example filter — the chip renders static prompt-example
+    // cards, and the guide's beat 2 must land on the first of those.
+    const WEB_PROTOTYPE_PLUGIN = {
+      id: 'example-web-prototype',
+      title: 'Web Prototype',
+      version: '0.1.0',
+      trust: 'bundled' as const,
+      sourceKind: 'bundled' as const,
+      source: '/tmp/web-prototype',
+      capabilitiesGranted: ['prompt:inject'],
+      fsPath: '/tmp/web-prototype',
+      installedAt: 0,
+      updatedAt: 0,
+      manifest: {
+        name: 'example-web-prototype',
+        title: 'Web Prototype',
+        version: '0.1.0',
+        description: 'General-purpose desktop web prototype.',
+        od: { kind: 'scenario', taskKind: 'new-generation' },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      if (typeof url === 'string' && url === '/api/plugins') {
+        return new Response(JSON.stringify({ plugins: [WEB_PROTOTYPE_PLUGIN] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+    renderHome([]);
+
+    fireEvent.click(await screen.findByTestId('home-hero-rail-prototype'));
+    expect(readHomeGuideStage()).toBe('card');
+
+    const exampleCards = await screen.findAllByTestId('home-hero-prompt-example');
+    await waitFor(
+      () => {
+        expect(exampleCards[0]?.className).toContain('home-hero__attention-sheen');
+      },
+      { timeout: 3000 },
+    );
+    expect(readHomeGuideStage()).toBe('done');
+  });
+
   it('never replays once done', async () => {
     writeHomeGuideStage('done');
     stubPluginsFetch();

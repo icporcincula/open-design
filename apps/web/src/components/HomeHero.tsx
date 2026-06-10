@@ -569,13 +569,24 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
     if (readHomeGuideStage() !== 'done') writeHomeGuideStage('done');
   }, [firstRunGuide]);
 
+  const activePromptExamples = useMemo(
+    () => activeChipId && activeExamplePlugins.length === 0
+      ? homeHeroChipPromptExamples(activeChipId, locale)
+      : [],
+    [activeChipId, activeExamplePlugins.length, locale],
+  );
+
   // Beat 2: once the picked chip's example cards render, pulse the first
   // card exactly once, then the trail is done (the send pulse takes over
   // after a card pick).
   useEffect(() => {
     if (firstRunGuide !== true) return;
     if (readHomeGuideStage() !== 'card') return;
-    if (!activeChipId || filteredExamplePlugins.length === 0) return;
+    // Either card surface counts: plugin preset tiles, or the static
+    // prompt-example fallback a presetless chip renders instead.
+    const hasExampleCards =
+      filteredExamplePlugins.length > 0 || activePromptExamples.length > 0;
+    if (!activeChipId || !hasExampleCards) return;
     const arm = window.setTimeout(() => {
       setGuidePulseFirstPreset(true);
       writeHomeGuideStage('done');
@@ -585,13 +596,7 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
       window.clearTimeout(arm);
       window.clearTimeout(disarm);
     };
-  }, [firstRunGuide, activeChipId, filteredExamplePlugins.length]);
-  const activePromptExamples = useMemo(
-    () => activeChipId && activeExamplePlugins.length === 0
-      ? homeHeroChipPromptExamples(activeChipId, locale)
-      : [],
-    [activeChipId, activeExamplePlugins.length, locale],
-  );
+  }, [firstRunGuide, activeChipId, filteredExamplePlugins.length, activePromptExamples.length]);
   const authoringLayoutActive =
     activeChipId === 'create-plugin' || pendingChipId === 'create-plugin';
   const promptMaxHeight = authoringLayoutActive
@@ -1596,11 +1601,11 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
             {t('homeHero.promptExamples')}
           </div>
           <div className="home-hero__prompt-examples-grid">
-            {activePromptExamples.map((example) => (
+            {activePromptExamples.map((example, index) => (
               <button
                 key={example}
                 type="button"
-                className="home-hero__prompt-example"
+                className={`home-hero__prompt-example${guidePulseFirstPreset && index === 0 ? ' home-hero__attention-sheen' : ''}`}
                 data-testid="home-hero-prompt-example"
                 onClick={() => usePromptExample(example)}
               >
