@@ -691,6 +691,17 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [previewHomeFileKey]);
 
+  // Shared by the imperative pulseSend() handle (plugin Use / preset picks
+  // routed through HomeView) and the component-internal static
+  // prompt-example path — every "composer just got seeded" flow shows the
+  // same Send cue.
+  function triggerSendAttention() {
+    // Drop the class for a frame so a pulse requested mid-animation
+    // restarts instead of being swallowed.
+    setSendAttention(false);
+    requestAnimationFrame(() => setSendAttention(true));
+  }
+
   useImperativeHandle(
     ref,
     (): HomeHeroHandle => ({
@@ -701,10 +712,7 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
         editorRef.current?.focus();
       },
       pulseSend() {
-        // Drop the class for a frame so a pulse requested mid-animation
-        // restarts instead of being swallowed.
-        setSendAttention(false);
-        requestAnimationFrame(() => setSendAttention(true));
+        triggerSendAttention();
       },
     }),
     [],
@@ -867,6 +875,7 @@ export const HomeHero = forwardRef<HomeHeroHandle, Props>(function HomeHero(
     editorRef.current?.setText(example);
     setSelectedIndex(0);
     requestAnimationFrame(() => editorRef.current?.focus());
+    triggerSendAttention();
   }
 
   function pickExamplePluginPreset(record: InstalledPluginRecord, chipId: string, promptText: string) {
