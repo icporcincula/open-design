@@ -2587,6 +2587,7 @@ export function OnboardingDropdown(props: OnboardingDropdownProps) {
           `${option.label} ${option.value}`.toLowerCase().includes(normalizedQuery),
         )
       : options;
+  const emptyMessage = searchable ? t('homeHero.footer.noMatches') : t('settings.fetchModelsEmpty');
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -2718,7 +2719,11 @@ export function OnboardingDropdown(props: OnboardingDropdownProps) {
                 aria-label={searchPlaceholder || label}
                 autoFocus
                 onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') {
+                    event.stopPropagation();
+                  }
+                }}
               />
             </label>
           ) : null}
@@ -2756,9 +2761,7 @@ export function OnboardingDropdown(props: OnboardingDropdownProps) {
               );
             })}
             {visibleOptions.length === 0 ? (
-              <div className="onboarding-view__select-empty">
-                {t('settings.fetchModelsEmpty')}
-              </div>
+              <div className="onboarding-view__select-empty">{emptyMessage}</div>
             ) : null}
           </div>
         </div>
