@@ -40,6 +40,70 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+const REQUIRED_INPUT_PLUGIN = {
+  ...WEB_PROTOTYPE_PLUGIN,
+  id: 'required-input-plugin',
+  title: 'Required Input Plugin',
+  source: '/tmp/required-input',
+  fsPath: '/tmp/required-input',
+  manifest: {
+    ...WEB_PROTOTYPE_PLUGIN.manifest,
+    name: 'required-input-plugin',
+    title: 'Required Input Plugin',
+    od: {
+      kind: 'scenario',
+      taskKind: 'new-generation',
+      useCase: { query: 'Build a landing page about {{topic}}.' },
+      inputs: [{ name: 'topic', type: 'string', required: true }],
+    },
+  },
+};
+
+describe('use-with-query send pulse gating', () => {
+  it('does not pulse Send when required inputs are still missing', async () => {
+    writeHomeGuideStage('done');
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      if (typeof url === 'string' && url === '/api/plugins') {
+        return new Response(JSON.stringify({ plugins: [REQUIRED_INPUT_PLUGIN] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+
+    const view = render(
+      <I18nProvider initial="en">
+        <div className="entry-main--scroll">
+          <HomeView
+            projects={[]}
+            onSubmit={() => undefined}
+            onOpenProject={() => undefined}
+            onViewAllProjects={() => undefined}
+          />
+        </div>
+      </I18nProvider>,
+    );
+    const scrollContainer = view.container.querySelector('.entry-main--scroll') as HTMLElement;
+    scrollContainer.scrollTop = 240;
+
+    // Replicate-content is the primary CTA for query-bearing plugins; this
+    // plugin's required `topic` has no default, so the composer lands on
+    // the inputs form with Send disabled — pulsing it would point at a
+    // dead end.
+    fireEvent.click(await screen.findByTestId('plugins-home-details-required-input-plugin'));
+    fireEvent.click(await screen.findByTestId('plugin-details-use-required-input-plugin'));
+
+    const submit = (await screen.findByTestId('home-hero-submit')) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(screen.getByTestId('home-hero-active-plugin')).toBeTruthy();
+    });
+    expect(submit.disabled).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(submit.className).not.toContain('home-hero__attention-sheen');
+  });
+});
+
 describe('static prompt-example send pulse', () => {
   it('pulses the send button after clicking a fallback prompt-example card', async () => {
     // Keep the first-run guide quiet so the sheen we assert on is the
