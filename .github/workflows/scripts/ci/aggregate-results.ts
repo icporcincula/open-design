@@ -132,16 +132,21 @@ async function waitForRun(workflowName: string, explicitRunId: string): Promise<
 
 async function downloadResultArtifact(provider: Provider, runId: number): Promise<WorkflowResult> {
   const dir = await mkdtemp(join(tmpdir(), `od-ci-${provider}-`));
-  await execFileAsync(
-    "gh",
-    ["run", "download", String(runId), "--repo", repository, "--name", `ci-results-${provider}`, "--dir", dir],
-    {
-      env: { ...process.env, GH_TOKEN: token },
-    },
-  );
-  const resultPath = await findResultFile(dir);
-  const raw = await readFile(resultPath, "utf8");
-  return parseWorkflowResult(JSON.parse(raw));
+  try {
+    await execFileAsync(
+      "gh",
+      ["run", "download", String(runId), "--repo", repository, "--name", `ci-results-${provider}`, "--dir", dir],
+      {
+        env: { ...process.env, GH_TOKEN: token },
+      },
+    );
+    const resultPath = await findResultFile(dir);
+    const raw = await readFile(resultPath, "utf8");
+    return parseWorkflowResult(JSON.parse(raw));
+  } catch (error) {
+    console.warn(`artifact download failed for ${provider} run ${runId}; falling back to structured log payload`);
+    return await downloadResultFromLog(runId);
+  }
 }
 
 async function findResultFile(root: string): Promise<string> {
@@ -160,6 +165,27 @@ async function findResultFile(root: string): Promise<string> {
     }
   }
   throw new Error(`ci-results.json not found under ${root}`);
+}
+
+async function downloadResultFromLog(runId: number): Promise<WorkflowResult> {
+  const { stdout } = await execFileAsync("gh", ["run", "view", String(runId), "--repo", repository, "--log"], {
+    env: { ...process.env, GH_TOKEN: token },
+    maxBuffer: 1024 * 1024 * 32,
+  });
+  const marker = "OD_CI_RESULTS_JSON ";
+  const payload = stdout
+    .split("\n")
+    .map((line) => {
+      const index = line.indexOf(marker);
+      return index >= 0 ? line.slice(index + marker.length).trim() : "";
+    })
+    .filter((line) => line.length > 0)
+    .at(-1);
+  if (!payload) {
+    throw new Error(`OD_CI_RESULTS_JSON marker not found in run ${runId} logs`);
+  }
+  const raw = Buffer.from(payload, "base64").toString("utf8");
+  return parseWorkflowResult(JSON.parse(raw));
 }
 
 function parseWorkflowResult(raw: unknown): WorkflowResult {

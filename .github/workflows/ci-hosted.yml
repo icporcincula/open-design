@@ -32,6 +32,8 @@ jobs:
     env:
       CI_GATE_HOSTED_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'nix' }}
       CI_GATE_PLAYWRIGHT_INSTALL_FLAGS: --with-deps chromium
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      COREPACK_HOME: /home/runner/.cache/open-design-ci/corepack
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -53,6 +55,7 @@ jobs:
 
       - name: Upload hosted CI results
         if: ${{ always() }}
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: ci-results-hosted

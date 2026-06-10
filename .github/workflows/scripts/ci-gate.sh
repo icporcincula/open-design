@@ -55,7 +55,17 @@ results_path="${results_path:-$ci_root/.od/ci-gate/ci-results.json}"
 results_dir="$(dirname "$results_path")"
 actions_jsonl="$results_dir/actions.jsonl"
 
+export COREPACK_ENABLE_DOWNLOAD_PROMPT="${COREPACK_ENABLE_DOWNLOAD_PROMPT:-0}"
+export COREPACK_HOME="${COREPACK_HOME:-$HOME/.cache/open-design-ci/corepack}"
+export npm_config_store_dir="${npm_config_store_dir:-$HOME/.cache/open-design-ci/pnpm-store}"
+export npm_config_fetch_retries="${npm_config_fetch_retries:-6}"
+export npm_config_fetch_retry_maxtimeout="${npm_config_fetch_retry_maxtimeout:-120000}"
+export npm_config_fetch_retry_mintimeout="${npm_config_fetch_retry_mintimeout:-20000}"
+export npm_config_network_timeout="${npm_config_network_timeout:-180000}"
+
 mkdir -p "$results_dir"
+mkdir -p "$COREPACK_HOME"
+mkdir -p "$npm_config_store_dir"
 : > "$actions_jsonl"
 
 event_name="${GITHUB_EVENT_NAME:-unknown}"
@@ -182,4 +192,5 @@ jq -sc \
   }' "$actions_jsonl" > "$results_path"
 
 echo "ci results: $results_path"
+echo "OD_CI_RESULTS_JSON $(base64 < "$results_path" | tr -d '\n')"
 exit "$overall_exit"
