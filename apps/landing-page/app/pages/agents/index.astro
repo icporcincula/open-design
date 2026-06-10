@@ -145,13 +145,24 @@ const credentialLabel = (agent: (typeof allAgents)[number]) => {
   return localizedCredentialLabels[locale]?.[agent.slug] ?? `${common.byok} · ${agent.vendor}`;
 };
 
+// JSON-LD URLs must match the locale-specific canonical the Layout emits, so
+// build them from the localized path rather than the hard-coded English route.
+const homeUrl = new URL(href('/'), SITE).toString();
+const hubUrl = new URL(Astro.url.pathname, SITE).toString();
+// Agents with a dedicated leaf page advertise it as the canonical destination;
+// the rest keep the in-hub anchor until they get one. Both stay locale-aware.
+const agentItemUrl = (slug: string) =>
+  DETAIL_ROUTES[slug]
+    ? new URL(href(`/agents/${DETAIL_ROUTES[slug]}/`), SITE).toString()
+    : `${hubUrl}#${slug}`;
+
 const jsonLd = [
   {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Open Design', item: SITE },
-      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: `${SITE}agents/` },
+      { '@type': 'ListItem', position: 1, name: 'Open Design', item: homeUrl },
+      { '@type': 'ListItem', position: 2, name: page.breadcrumb, item: hubUrl },
     ],
   },
   {
@@ -163,9 +174,7 @@ const jsonLd = [
       '@type': 'ListItem',
       position: idx + 1,
       name: a.name,
-      // Agents with a dedicated leaf page advertise it as the canonical
-      // destination; the rest keep the in-hub anchor until they get one.
-      url: DETAIL_ROUTES[a.slug] ? `${SITE}agents/${DETAIL_ROUTES[a.slug]}/` : `${SITE}agents/#${a.slug}`,
+      url: agentItemUrl(a.slug),
     })),
   },
 ];
