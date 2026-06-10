@@ -2111,13 +2111,11 @@ export function ProjectView({
       sessionMode: sessionModeOverride,
       locale,
       userInstructions: config.customInstructions,
-      projectInstructions: project.customInstructions,
     });
   }, [
     project.skillId,
     project.designSystemId,
     project.metadata,
-    project.customInstructions,
     skills,
     designTemplates,
     designSystems,
