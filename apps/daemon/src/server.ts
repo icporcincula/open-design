@@ -14457,6 +14457,15 @@ export async function startServer({
     // here so PostHog actually receives the event. Both fire under the
     // same insert_id prefix so any web-side mirror dedupes by $insert_id.
     const analyticsContext = readAnalyticsContext(req);
+    design.runs.wait(run).then((status: { status: string }) => {
+      reportRunCompletionTelemetryFallback({
+        analyticsContext: analyticsContext ?? null,
+        run,
+        status: status.status,
+      });
+    }).catch(() => {
+      // wait() can't reject in current runs.ts impl, but guard anyway.
+    });
     if (analyticsContext) {
       const reqBody = (req.body || {}) as Record<string, unknown>;
       const runInsertId = newInsertId();
@@ -14866,11 +14875,6 @@ export async function startServer({
             token_count_source: usageAnalytics.token_count_source,
           },
           insertId: `${runInsertId}-finish`,
-        });
-        reportRunCompletionTelemetryFallback({
-          analyticsContext,
-          run,
-          status: status.status,
         });
       }).catch(() => {
         // wait() can't reject in current runs.ts impl, but guard anyway.

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { startServer } from '../src/server.js';
 import { classifyRunFailure } from '../src/run-failure-classification.js';
@@ -42,8 +42,11 @@ describe('run failure telemetry smoke', () => {
   let started: StartedServer | null = null;
   let binDir: string | null = null;
   let ingestion: Awaited<ReturnType<typeof startLangfuseIngestion>> | null = null;
+  let restoreSetTimeout: (() => void) | null = null;
 
   afterEach(async () => {
+    restoreSetTimeout?.();
+    restoreSetTimeout = null;
     await Promise.resolve(started?.shutdown?.());
     if (started?.server) {
       await new Promise<void>((resolve) => started?.server.close(() => resolve()));
@@ -185,6 +188,37 @@ describe('run failure telemetry smoke', () => {
       }
     }
   });
+
+  it('reports the terminal Langfuse fallback for headerless run requests', async () => {
+    binDir = await mkdtemp(path.join(os.tmpdir(), 'od-run-failure-fallback-bin-'));
+    await writeFakeClaude(binDir, 'claude-terminal-failure', 'terminal fallback smoke failure');
+
+    ingestion = await startLangfuseIngestion();
+    process.env.LANGFUSE_PUBLIC_KEY = 'pk-test';
+    process.env.LANGFUSE_SECRET_KEY = 'sk-test';
+    process.env.LANGFUSE_BASE_URL = ingestion.url;
+    delete process.env.OPEN_DESIGN_TELEMETRY_RELAY_URL;
+    delete process.env.POSTHOG_KEY;
+
+    started = await startServer({ port: 0, returnServer: true }) as StartedServer;
+    restoreSetTimeout = accelerateLangfuseTerminalFallbackDelay();
+    await putConfig(started.url, {
+      agentId: 'claude',
+      agentCliEnv: { claude: { CLAUDE_BIN: path.join(binDir, 'claude-terminal-failure') } },
+      telemetry: { metrics: true, content: true, artifactManifest: false },
+      privacyDecisionAt: Date.now(),
+    });
+
+    const run = await createAndWaitForRun(started.url, {
+      caseId: 'headerless_terminal_fallback',
+      agentId: 'claude',
+      message: 'od-failure-smoke-headerless-terminal-fallback',
+    });
+
+    const trace = await ingestion.waitForTrace(run.id);
+    expect(trace.body.id).toBe(run.id);
+    expect(trace.body.metadata.error_code).toBe(deriveRunErrorCode(run));
+  });
 });
 
 function snapshotEnv(): Record<string, string | undefined> {
@@ -203,6 +237,20 @@ function restoreEnv(env: Record<string, string | undefined>): void {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
+}
+
+function accelerateLangfuseTerminalFallbackDelay(): () => void {
+  const originalSetTimeout = globalThis.setTimeout;
+  const spy = vi.spyOn(globalThis, 'setTimeout');
+  spy.mockImplementation(((
+    handler: Parameters<typeof globalThis.setTimeout>[0],
+    timeout: Parameters<typeof globalThis.setTimeout>[1],
+    ...args: any[]
+  ) => {
+    const delay = timeout === 15_000 ? 0 : timeout;
+    return originalSetTimeout(handler, delay, ...args);
+  }) as typeof globalThis.setTimeout);
+  return () => spy.mockRestore();
 }
 
 async function writeFakeClaude(dir: string, name: string, stderr: string | null): Promise<void> {
