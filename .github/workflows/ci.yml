@@ -515,6 +515,7 @@ jobs:
         run: pnpm --filter @open-design/e2e test
 
       - name: Playwright critical
+        if: ${{ github.event_name != 'pull_request' || needs.change_scopes.outputs.ui_p0_pr_required != 'true' }}
         run: |
           pnpm -C e2e exec tsx scripts/playwright.ts clean
           pnpm -C e2e run test:ui:critical
