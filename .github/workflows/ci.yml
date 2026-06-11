@@ -1,8 +1,10 @@
-name: ci
+name: ci-legacy
 
 on:
   pull_request:
   merge_group:
+  # Legacy workspace gate kept as a rollback lane while `ci-gate` owns the
+  # required `Validate workspace` status check.
   # Release validation is owned by the release workflows rather than this CI
   # workflow: `release-stable` has a verify job before publishing, and
   # `release-beta` builds from its selected release commit. Keep this trigger
@@ -511,7 +513,7 @@ jobs:
         run: pnpm -r --filter '!@open-design/landing-page' --workspace-concurrency=1 --if-present run build
 
   validate:
-    name: Validate workspace
+    name: Legacy validate workspace
     needs:
       - change_scopes
       - blob_guard
