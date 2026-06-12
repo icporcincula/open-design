@@ -249,6 +249,8 @@ vi.mock('../../src/components/ChatPane', () => ({
     onSend,
     onSendQueuedNow,
     onNewConversation,
+    onSwitchToAmrAndSend,
+    amrPendingSendActive,
     error,
   }: {
     activeConversationId: string | null;
@@ -270,12 +272,19 @@ vi.mock('../../src/components/ChatPane', () => ({
     ) => void;
     onSendQueuedNow?: (id: string) => void;
     onNewConversation: () => void;
+    onSwitchToAmrAndSend?: (draft: {
+      prompt: string;
+      attachments: [];
+      commentAttachments: [];
+    }) => boolean;
+    amrPendingSendActive?: boolean;
   }) => {
     const attached = attachedComments ?? [];
     return (
       <section>
         <output data-testid="active-conversation">{activeConversationId}</output>
         <output data-testid="streaming-state">{streaming ? 'streaming' : 'idle'}</output>
+        <output data-testid="amr-pending-send">{amrPendingSendActive ? 'pending' : 'idle'}</output>
         <output data-testid="chat-error">{error}</output>
         <output data-testid="conversation-latest-runs">
           {conversations
@@ -430,6 +439,19 @@ vi.mock('../../src/components/ChatPane', () => ({
         <button type="button" data-testid="new-conversation" onClick={onNewConversation}>
           new
         </button>
+        <button
+          type="button"
+          data-testid="trigger-amr-preflight-send"
+          onClick={() =>
+            onSwitchToAmrAndSend?.({
+              prompt: 'blocked amr draft',
+              attachments: [],
+              commentAttachments: [],
+            })
+          }
+        >
+          trigger amr preflight send
+        </button>
       </section>
     );
   },
@@ -517,6 +539,35 @@ const secondPreviewComment: PreviewComment = {
   note: 'keep this attached',
 };
 
+function ensureLocalStorage() {
+  let storage: Storage | undefined;
+  try {
+    storage = window.localStorage;
+  } catch {
+    storage = undefined;
+  }
+  if (storage) return;
+  const records = new Map<string, string>();
+  const memoryStorage: Storage = {
+    get length() {
+      return records.size;
+    },
+    clear: () => records.clear(),
+    getItem: (key) => records.get(key) ?? null,
+    key: (index) => Array.from(records.keys())[index] ?? null,
+    removeItem: (key) => {
+      records.delete(key);
+    },
+    setItem: (key, value) => {
+      records.set(key, String(value));
+    },
+  };
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: memoryStorage,
+  });
+}
+
 describe('mergeSavedPreviewComment', () => {
   it('appends newly saved comments after existing comments', () => {
     expect(mergeSavedPreviewComment([previewComment], secondPreviewComment).map((comment) => comment.id))
@@ -538,6 +589,7 @@ describe('ProjectView conversation run isolation', () => {
   let conversationAMessages: ChatMessage[] = [runningAssistant];
 
   beforeEach(() => {
+    ensureLocalStorage();
     window.localStorage.clear();
     resolveConversationBMessages = null;
     conversationAMessages = [runningAssistant];
@@ -1650,6 +1702,64 @@ describe('ProjectView conversation run isolation', () => {
 
     await waitFor(() => expect(fetchVelaLoginStatus).toHaveBeenCalled());
     await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(2));
+  });
+
+  it('keeps delayed AMR preflight sends bound to their original conversation', async () => {
+    conversationAMessages = [];
+    const loginResolvers: Array<(status: { loggedIn: boolean }) => void> = [];
+    fetchVelaLoginStatus.mockImplementation(
+      () => new Promise<{ loggedIn: boolean }>((resolve) => {
+        loginResolvers.push(resolve);
+      }),
+    );
+
+    renderProjectView(
+      {
+        ...config,
+        agentId: 'amr',
+      },
+      project,
+      [
+        {
+          id: 'amr',
+          name: 'AMR',
+          bin: 'amr',
+          available: true,
+          models: [{ id: 'glm-5', label: 'GLM 5' }],
+        },
+      ],
+      { onOpenAmrSettings: vi.fn() },
+    );
+
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-a'));
+    await waitFor(() => expect(screen.getByTestId('send-message')).toHaveProperty('disabled', false));
+
+    fireEvent.click(screen.getByTestId('trigger-amr-preflight-send'));
+    await waitFor(() => expect(screen.getByTestId('amr-pending-send').textContent).toBe('pending'));
+    await waitFor(() => expect(fetchVelaLoginStatus).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId('conversation-select-conv-b'));
+    await waitFor(() => expect(screen.getByTestId('active-conversation').textContent).toBe('conv-b'));
+    await waitFor(() => expect(fetchVelaLoginStatus.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    await act(async () => {
+      for (const resolveLogin of loginResolvers.splice(0)) {
+        resolveLogin({ loggedIn: true });
+      }
+    });
+
+    await waitFor(() => expect(screen.getByTestId('amr-pending-send').textContent).toBe('idle'));
+    expect(streamViaDaemon).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('send-queued-0')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('conversation-select-conv-a'));
+
+    await waitFor(() => expect(streamViaDaemon).toHaveBeenCalledTimes(1));
+    expect(streamViaDaemon).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv-a',
+      }),
+    );
   });
 
   it('routes workspace retry and terminal launch recovery for antigravity auth failures', async () => {

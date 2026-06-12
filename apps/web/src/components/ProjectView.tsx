@@ -226,6 +226,11 @@ type ProjectChatSendMeta = ChatSendMeta & {
   entryFrom?: ChatAnalyticsEntryFrom;
 };
 
+interface PendingAmrPreflightSend {
+  conversationId: string;
+  draft: AmrPreflightSendDraft;
+}
+
 export function mergeSavedPreviewComment(current: PreviewComment[], saved: PreviewComment): PreviewComment[] {
   const existingIndex = current.findIndex((comment) => comment.id === saved.id);
   if (existingIndex < 0) return [...current, saved];
@@ -4032,7 +4037,7 @@ export function ProjectView({
   // top up, and arm an auto-retry that fires once AMR is selected AND signed
   // in (see the effect below).
   const [pendingAmrRetry, setPendingAmrRetry] = useState<ChatMessage | null>(null);
-  const [pendingAmrSend, setPendingAmrSend] = useState<AmrPreflightSendDraft | null>(null);
+  const [pendingAmrSend, setPendingAmrSend] = useState<PendingAmrPreflightSend | null>(null);
   const amrSendPreflightIssue = useMemo(
     () =>
       resolveAmrSendPreflightIssue(config, agents, {
@@ -4061,22 +4066,39 @@ export function ProjectView({
   );
   const handleSwitchToAmrAndSend = useCallback(
     (draft: AmrPreflightSendDraft) => {
+      if (!activeConversationId) return false;
       if (!handleSwitchToAmr()) return false;
-      setPendingAmrSend(draft);
+      setPendingAmrSend({ conversationId: activeConversationId, draft });
       return true;
     },
-    [handleSwitchToAmr],
+    [activeConversationId, handleSwitchToAmr],
   );
   // Draft handed back to ChatPane when the pending AMR auto-send is cancelled
   // or times out, so the prompt is restored to the composer instead of lost.
   const [amrPendingRestoreDraft, setAmrPendingRestoreDraft] =
     useState<AmrPreflightSendDraft | null>(null);
+  const restoreOrQueuePendingAmrSend = useCallback((pending: PendingAmrPreflightSend) => {
+    if (
+      activeConversationId === pending.conversationId
+      && messagesConversationIdRef.current === pending.conversationId
+    ) {
+      setAmrPendingRestoreDraft(pending.draft);
+      return;
+    }
+    queueChatSendForCurrentConversation({
+      conversationId: pending.conversationId,
+      prompt: pending.draft.prompt,
+      attachments: pending.draft.attachments,
+      commentAttachments: pending.draft.commentAttachments,
+      meta: pending.draft.meta,
+    });
+  }, [activeConversationId, queueChatSendForCurrentConversation]);
   const cancelPendingAmrSend = useCallback(() => {
-    setPendingAmrSend((draft) => {
-      if (draft) setAmrPendingRestoreDraft(draft);
+    setPendingAmrSend((pending) => {
+      if (pending) restoreOrQueuePendingAmrSend(pending);
       return null;
     });
-  }, []);
+  }, [restoreOrQueuePendingAmrSend]);
   const handleAmrPendingRestoreHandled = useCallback(() => {
     setAmrPendingRestoreDraft(null);
   }, []);
@@ -4140,12 +4162,20 @@ export function ProjectView({
       if (!(config.mode === 'daemon' && config.agentId === 'amr')) return;
       const status = await fetchVelaLoginStatus().catch(() => null);
       if (cancelled || status?.loggedIn !== true) return;
+      if (
+        activeConversationId !== pendingAmrSend.conversationId
+        || messagesConversationIdRef.current !== pendingAmrSend.conversationId
+      ) {
+        setPendingAmrSend(null);
+        restoreOrQueuePendingAmrSend(pendingAmrSend);
+        return;
+      }
       setPendingAmrSend(null);
       void handleSend(
-        pendingAmrSend.prompt,
-        pendingAmrSend.attachments,
-        pendingAmrSend.commentAttachments,
-        pendingAmrSend.meta,
+        pendingAmrSend.draft.prompt,
+        pendingAmrSend.draft.attachments,
+        pendingAmrSend.draft.commentAttachments,
+        pendingAmrSend.draft.meta,
       );
     };
     void trySend();
@@ -4160,7 +4190,15 @@ export function ProjectView({
       clearInterval(interval);
       clearTimeout(stop);
     };
-  }, [pendingAmrSend, config.mode, config.agentId, handleSend, cancelPendingAmrSend]);
+  }, [
+    activeConversationId,
+    pendingAmrSend,
+    config.mode,
+    config.agentId,
+    handleSend,
+    cancelPendingAmrSend,
+    restoreOrQueuePendingAmrSend,
+  ]);
 
   useEffect(() => {
     if (!autoAuditRepairSeed) return;
@@ -5734,7 +5772,7 @@ export function ProjectView({
               onOpenAmrSettings={onOpenAmrSettings}
               onSwitchToAmrAndRetry={handleSwitchToAmrAndRetry}
               onSwitchToAmrAndSend={handleSwitchToAmrAndSend}
-              amrPendingSendActive={Boolean(pendingAmrSend)}
+              amrPendingSendActive={pendingAmrSend?.conversationId === activeConversationId}
               onCancelAmrPendingSend={cancelPendingAmrSend}
               amrPendingRestoreDraft={amrPendingRestoreDraft}
               onAmrPendingRestoreHandled={handleAmrPendingRestoreHandled}
