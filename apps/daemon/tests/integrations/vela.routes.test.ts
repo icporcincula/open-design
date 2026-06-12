@@ -14,13 +14,15 @@
 
 import { mkdtempSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
+import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type http from 'node:http';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { startServer } from '../../src/server.js';
 import { readAppConfig, writeAppConfig } from '../../src/app-config.js';
@@ -601,6 +603,64 @@ describe('POST /api/integrations/vela/login', () => {
     expect(after.body.loggedIn).toBe(false);
     expect(after.body.loginInFlight).toBe(false);
     expect(existsSync(configPath())).toBe(false);
+  });
+});
+
+describe('ALL /api/integrations/vela/api-proxy/*', () => {
+  it('forwards form-encoded POST bodies to the AMR API upstream', async () => {
+    const upstreamRequests: Array<{
+      href: string;
+      method: string;
+      headers: Record<string, string>;
+      body: string;
+    }> = [];
+    const requestSpy = vi.spyOn(https, 'request').mockImplementation(((target, options, callback) => {
+      const req = new PassThrough() as any;
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer | string) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      req.on('finish', () => {
+        upstreamRequests.push({
+          href: target instanceof URL ? target.href : String(target),
+          method: String(options?.method ?? ''),
+          headers: options?.headers as Record<string, string>,
+          body: Buffer.concat(chunks).toString('utf8'),
+        });
+        const upstreamRes = new PassThrough() as any;
+        upstreamRes.statusCode = 201;
+        upstreamRes.headers = { 'content-type': 'application/json' };
+        callback?.(upstreamRes);
+        upstreamRes.end(JSON.stringify({ ok: true }));
+      });
+      req.setTimeout = () => req;
+      return req;
+    }) as typeof https.request);
+
+    try {
+      const body = new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        device_code: 'device-code-123',
+      }).toString();
+      const resp = await fetch(`${baseUrl}/api/integrations/vela/api-proxy/api/v1/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+
+      expect(resp.status).toBe(201);
+      expect(await resp.json()).toEqual({ ok: true });
+      expect(upstreamRequests).toHaveLength(1);
+      expect(upstreamRequests[0]?.href).toBe('https://amr-api.open-design.ai/api/v1/oauth/token');
+      expect(upstreamRequests[0]?.method).toBe('POST');
+      expect(upstreamRequests[0]?.headers['content-type']).toContain(
+        'application/x-www-form-urlencoded',
+      );
+      expect(upstreamRequests[0]?.headers['content-length']).toBe(String(Buffer.byteLength(body)));
+      expect(upstreamRequests[0]?.body).toBe(body);
+    } finally {
+      requestSpy.mockRestore();
+    }
   });
 });
 

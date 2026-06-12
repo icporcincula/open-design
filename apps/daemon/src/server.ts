@@ -6662,6 +6662,10 @@ export async function startServer({
     return Buffer.from(JSON.stringify(req.body));
   }
 
+  function shouldStreamVelaProxyRequest(req, body) {
+    return req.method !== 'GET' && req.method !== 'HEAD' && body == null;
+  }
+
   function proxyAmrApiRequest(req, res) {
     const suffix = req.originalUrl.slice(AMR_API_PROXY_PREFIX.length);
     if (!suffix.startsWith('/api/v1/')) {
@@ -6670,17 +6674,18 @@ export async function startServer({
     }
     const target = new URL(suffix, AMR_API_UPSTREAM_ORIGIN);
     const body = velaProxyRequestBody(req);
+    const streamBody = shouldStreamVelaProxyRequest(req, body);
     const headers = {};
     for (const [key, value] of Object.entries(req.headers)) {
       const lower = key.toLowerCase();
       if (
         lower === 'host' ||
         lower === 'connection' ||
-        lower === 'content-length' ||
         lower === 'transfer-encoding'
       ) {
         continue;
       }
+      if (lower === 'content-length' && body) continue;
       headers[key] = value;
     }
     if (body) headers['content-length'] = String(body.length);
@@ -6711,7 +6716,11 @@ export async function startServer({
       }
     });
     if (body) upstream.write(body);
-    upstream.end();
+    if (streamBody) {
+      req.pipe(upstream);
+    } else {
+      upstream.end();
+    }
   }
 
   // AMR (vela) login integration — see `apps/daemon/src/integrations/vela.ts`.
