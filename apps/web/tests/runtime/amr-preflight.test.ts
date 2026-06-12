@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { BUILT_IN_DAEMON_AGENT_IDS } from '@open-design/contracts';
 
 import { resolveAmrSendPreflightIssue } from '../../src/runtime/amr-preflight';
 import type { AgentInfo, AppConfig } from '../../src/types';
@@ -23,6 +24,8 @@ function agent(overrides: Partial<AgentInfo> = {}): AgentInfo {
     ...overrides,
   };
 }
+
+const NON_AMR_BUILT_IN_AGENT_IDS = BUILT_IN_DAEMON_AGENT_IDS.filter((id) => id !== 'amr');
 
 describe('resolveAmrSendPreflightIssue', () => {
   it('blocks incomplete BYOK config before a run is submitted', () => {
@@ -90,6 +93,22 @@ describe('resolveAmrSendPreflightIssue', () => {
       }),
     ).toEqual({ kind: 'agent-unavailable', agentId: 'claude' });
   });
+
+  it.each(NON_AMR_BUILT_IN_AGENT_IDS)(
+    'blocks missing built-in local agent %s after the agent probe has settled',
+    (agentId) => {
+      expect(
+        resolveAmrSendPreflightIssue(
+          {
+            ...baseConfig,
+            agentId,
+          },
+          [],
+          { agentsProbeSucceeded: true },
+        ),
+      ).toEqual({ kind: 'agent-unavailable', agentId });
+    },
+  );
 
   it('does not treat an absent custom agent entry as confirmed unavailable', () => {
     expect(

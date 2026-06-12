@@ -25,7 +25,7 @@ import { reasonixAgentDef } from './defs/reasonix.js';
 import { readLocalAgentProfileDefs as readLocalAgentProfileDefsFromFile } from './local-profiles.js';
 import type { RuntimeAgentDef } from './types.js';
 
-const BASE_AGENT_DEFS: RuntimeAgentDef[] = [
+export const BASE_AGENT_DEFS: RuntimeAgentDef[] = [
   amrAgentDef,
   claudeAgentDef,
   codexAgentDef,

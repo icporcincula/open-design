@@ -1,14 +1,22 @@
 import { test } from 'vitest';
+import { BUILT_IN_DAEMON_AGENT_IDS } from '@open-design/contracts';
 import {
   AGENT_DEFS, amp, assert, chmodSync, codex, cursorAgent, detectAgents, grokBuild, join, mkdtempSync, rmSync, tmpdir, withEnvSnapshot, withPlatform, writeFileSync,
 } from './helpers/test-helpers.js';
 import { codexNeedsDangerFullAccessSandbox } from '../../src/runtimes/defs/codex.js';
-import { readLocalAgentProfileDefs } from '../../src/runtimes/registry.js';
+import { BASE_AGENT_DEFS, readLocalAgentProfileDefs } from '../../src/runtimes/registry.js';
 
 test('AGENT_DEFS ids are unique', () => {
   const ids = AGENT_DEFS.map((a) => a.id);
   const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
   assert.deepEqual(dupes, [], `duplicate agent ids: ${JSON.stringify(dupes)}`);
+});
+
+test('shared built-in daemon agent ids match the runtime registry', () => {
+  assert.deepEqual(
+    [...BUILT_IN_DAEMON_AGENT_IDS].sort(),
+    BASE_AGENT_DEFS.map((agent) => agent.id).sort(),
+  );
 });
 
 test('local agent profiles inherit a base adapter and can pin the default model', async () => {

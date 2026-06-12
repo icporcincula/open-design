@@ -1,3 +1,4 @@
+import { BUILT_IN_DAEMON_AGENT_IDS } from '@open-design/contracts';
 import type { Dict } from '../i18n/types';
 import type { AgentInfo, AppConfig } from '../types';
 
@@ -23,29 +24,7 @@ export interface ResolveAmrSendPreflightOptions {
   agentsProbeSucceeded?: boolean;
 }
 
-const BUILT_IN_DAEMON_AGENT_IDS = new Set([
-  'aider',
-  'antigravity',
-  'claude',
-  'codex',
-  'copilot',
-  'cursor-agent',
-  'deepseek',
-  'devin',
-  'gemini',
-  'grok-build',
-  'hermes',
-  'kilo',
-  'kimi',
-  'kiro',
-  'opencode',
-  'pi',
-  'qoder',
-  'qwen',
-  'reasonix',
-  'trae-cli',
-  'vibe',
-]);
+const BUILT_IN_DAEMON_AGENT_ID_SET = new Set<string>(BUILT_IN_DAEMON_AGENT_IDS);
 
 export function resolveAmrSendPreflightIssue(
   config: AppConfig | undefined,
@@ -74,7 +53,7 @@ export function resolveAmrSendPreflightIssue(
   const selectedAgent = agents?.find((agent) => agent.id === agentId);
   if (!selectedAgent) {
     if (options.agentsLoading || !options.agentsProbeSucceeded) return null;
-    if (BUILT_IN_DAEMON_AGENT_IDS.has(agentId)) {
+    if (BUILT_IN_DAEMON_AGENT_ID_SET.has(agentId)) {
       return { kind: 'agent-unavailable', agentId };
     }
     return null;

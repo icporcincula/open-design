@@ -1,0 +1,28 @@
+export const BUILT_IN_DAEMON_AGENT_IDS = [
+  'amr',
+  'claude',
+  'codex',
+  'devin',
+  'gemini',
+  'opencode',
+  'hermes',
+  'trae-cli',
+  'grok-build',
+  'kimi',
+  'cursor-agent',
+  'qwen',
+  'qoder',
+  'copilot',
+  'amp',
+  'pi',
+  'kiro',
+  'kilo',
+  'vibe',
+  'deepseek',
+  'aider',
+  'antigravity',
+  'reasonix',
+  'codebuddy',
+] as const;
+
+export type BuiltInDaemonAgentId = (typeof BUILT_IN_DAEMON_AGENT_IDS)[number];

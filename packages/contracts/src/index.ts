@@ -31,6 +31,7 @@ export * from './api/social-share.js';
 export * from './api/terminals.js';
 export * from './api/version.js';
 export * from './examples.js';
+export * from './runtime-agents.js';
 export * from './design-systems/components-manifest.js';
 export * from './design-systems/derived-token-outputs.js';
 export * from './design-systems/token-schema.js';
