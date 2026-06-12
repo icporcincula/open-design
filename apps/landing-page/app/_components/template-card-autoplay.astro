@@ -29,7 +29,10 @@
         if (src && !v.src) v.src = src;
       };
 
-      // Near-view: hydrate the src so the first play doesn't stall on a fetch.
+      // Mount margin (mirrors the in-app MediaSurface's 1000px): hydrate the
+      // src well before the card scrolls in so `preload="metadata"` can paint
+      // the first frame off-screen and the clip is ready without a poster→video
+      // flash. Playback/decode is still gated to true visibility below.
       const lazyObs = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
@@ -38,7 +41,7 @@
             lazyObs.unobserve(entry.target);
           }
         },
-        { rootMargin: '300px' },
+        { rootMargin: '1000px' },
       );
 
       // On-screen visibility drives idle playback for hold/pan clips.
