@@ -339,35 +339,6 @@
       "description": "Design-history geometric deck: aged canvas #f4efe3, the red/yellow/blue primaries (#e03c27/#f4c430/#1d4eaf), a hard three-band gradient, zero border radius, 2px ink strokes, hard offset shadows, Archivo Black + Space Grotesk. Based on lewislulu/html-ppt-skill bauhaus theme — single-file HTML deck with keyboard navigation and #/N hash deep links."
     },
     {
-      "name": "community/hps-catppuccin-mocha",
-      "title": "Catppuccin Mocha",
-      "version": "1.0.0",
-      "source": "github:nexu-io/open-design@main/plugins/community/hps-catppuccin-mocha",
-      "publisher": {
-        "id": "lewislulu",
-        "github": "lewislulu",
-        "url": "https://github.com/lewislulu"
-      },
-      "homepage": "https://github.com/lewislulu/html-ppt-skill",
-      "license": "MIT",
-      "capabilitiesSummary": [
-        "prompt:inject",
-        "fs:write"
-      ],
-      "tags": [
-        "community",
-        "deck",
-        "slides",
-        "presentation",
-        "dark",
-        "catppuccin",
-        "pastel",
-        "developer",
-        "web"
-      ],
-      "description": "Soothing dark deck theme in the community-favorite Catppuccin Mocha palette: ink-purple #1e1e2e ground, lavender #cdd6f4 text, mauve/blue/pink pastel accents, a mauve→blue→teal gradient, 14px radii and soft shadows — built for developers reading dark screens for long stretches. Single-file HTML scroll-snap deck with keyboard navigation and a signature terminal card for code and CLI content. Based on lewislulu/html-ppt-skill catppuccin-mocha."
-    },
-    {
       "name": "community/hps-memphis-pop",
       "title": "Memphis Pop",
       "version": "1.0.0",
@@ -457,36 +428,6 @@
         "html-ppt"
       ],
       "description": "True-blueprint deck theme: a blueprint-blue #0b3a6f full-bleed field under a 40px white drafting grid, dashed-border translucent cards, white and ice-blue #aee1ff ink lines with amber #ffd27a annotations, every glyph in JetBrains Mono, 2px corners, zero shadows. Drawing-sheet chrome (title block, sheet index, construction-line section numbers, hatched CSS bars, inline-SVG schematics) makes it the natural skin for system-architecture and engineering-design decks. Single self-contained HTML file, zero external JS. Based on lewislulu/html-ppt-skill blueprint theme."
-    },
-    {
-      "name": "community/hps-vaporwave",
-      "title": "Vaporwave",
-      "version": "1.0.0",
-      "source": "github:nexu-io/open-design@main/plugins/community/hps-vaporwave",
-      "publisher": {
-        "id": "lewislulu",
-        "github": "lewislulu",
-        "url": "https://github.com/lewislulu"
-      },
-      "homepage": "https://github.com/lewislulu/html-ppt-skill",
-      "license": "MIT",
-      "capabilitiesSummary": [
-        "prompt:inject",
-        "fs:write"
-      ],
-      "tags": [
-        "community",
-        "deck",
-        "slides",
-        "presentation",
-        "vaporwave",
-        "retro",
-        "gradient",
-        "neon",
-        "dark",
-        "html-ppt"
-      ],
-      "description": "Vaporwave deck theme: a deep-purple-to-magenta sunset sky (#1a0938 → #e85d9c) with a cyan glow ellipse rising from the horizon, pink→purple→cyan gradient-clipped display type, frosted-glass cards with glowing 4px gradient dividers, a scanline sun mark, and Space Grotesk throughout. A E S T H E T I C. Single-file HTML deck with keyboard navigation and #/N hash routing. Based on lewislulu/html-ppt-skill vaporwave (assets/themes/vaporwave.css + templates/deck.html)."
     },
     {
       "name": "community/hps-y2k-chrome",
