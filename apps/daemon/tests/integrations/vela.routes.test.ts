@@ -122,6 +122,15 @@ function seedLogin(profile: string, payload: Record<string, unknown> = {}): void
   writeFileSync(configPath(), JSON.stringify(full, null, 2), 'utf8');
 }
 
+async function waitForFile(file: string, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (existsSync(file)) return;
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${file}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 beforeAll(async () => {
   // The login route resolves the vela binary through the daemon's
   // `agentCliEnvForAgent` projection of `app-config.json` (NOT process.env),
@@ -164,6 +173,7 @@ afterEach(() => {
   delete process.env.FAKE_VELA_LOGIN_FAIL;
   delete process.env.FAKE_VELA_LOGIN_USER_EMAIL;
   delete process.env.FAKE_VELA_LOGIN_USER_PLAN;
+  delete process.env.FAKE_VELA_ENV_DUMP_PATH;
   delete process.env.VELA_RUNTIME_KEY;
   delete process.env.VELA_LINK_URL;
   delete process.env.OPEN_DESIGN_AMR_ANALYTICS_URL;
@@ -329,6 +339,46 @@ describe('GET /api/integrations/vela/status', () => {
 });
 
 describe('POST /api/integrations/vela/login', () => {
+  it('routes default vela login API traffic through the daemon AMR API proxy', async () => {
+    const dumpPath = path.join(tmpHome, 'vela-env.json');
+    process.env.FAKE_VELA_ENV_DUMP_PATH = dumpPath;
+
+    const { status } = await postJson(`${baseUrl}/api/integrations/vela/login`);
+    expect(status).toBe(202);
+
+    await waitForFile(dumpPath);
+    const env = JSON.parse(readFileSync(dumpPath, 'utf8'));
+    expect(env.VELA_API_URL).toBe(`${baseUrl}/api/integrations/vela/api-proxy`);
+  });
+
+  it('preserves an explicitly configured VELA_API_URL during login', async () => {
+    const dataDir = process.env.OD_DATA_DIR as string;
+    const previous = await readAppConfig(dataDir);
+    const dumpPath = path.join(tmpHome, 'vela-env-custom-url.json');
+    process.env.FAKE_VELA_ENV_DUMP_PATH = dumpPath;
+    await writeAppConfig(dataDir, {
+      ...previous,
+      agentCliEnv: {
+        ...(previous.agentCliEnv ?? {}),
+        amr: {
+          ...((previous.agentCliEnv?.amr as Record<string, string>) ?? {}),
+          VELA_BIN: FAKE_VELA,
+          VELA_API_URL: 'https://custom-amr.example',
+        },
+      },
+    });
+    try {
+      const { status } = await postJson(`${baseUrl}/api/integrations/vela/login`);
+      expect(status).toBe(202);
+
+      await waitForFile(dumpPath);
+      const env = JSON.parse(readFileSync(dumpPath, 'utf8'));
+      expect(env.VELA_API_URL).toBe('https://custom-amr.example');
+    } finally {
+      await writeAppConfig(dataDir, previous as unknown as Record<string, unknown>);
+    }
+  });
+
   it('spawns the configured vela binary and surfaces a pid + startedAt + profile', async () => {
     process.env.FAKE_VELA_LOGIN_USER_EMAIL = 'login-route@example.com';
     const { status, body } = await postJson<{
