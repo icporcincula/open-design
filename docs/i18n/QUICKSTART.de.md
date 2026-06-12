@@ -45,7 +45,7 @@ Für die Desktop-Shell und alle verwalteten Sidecars im Hintergrund:
 pnpm tools-dev # startet daemon + web + desktop im Hintergrund
 ```
 
-Before documenting or changing any artifact storage path, you MUST read root AGENTS.md / **Daemon data directory contract**.
+Beim ersten Laden erkennt die App Ihre installierte Code-Agent-CLI (Claude Code / Codex / Gemini / OpenCode / Cursor Agent / Qwen), wählt sie automatisch und nutzt standardmäßig den `web-prototype` Skill sowie das `Neutral Modern` Design System. Geben Sie einen Prompt ein und klicken Sie auf **Senden**. Der Agent streamt in den linken Bereich; das `<artifact>` Tag wird herausgeparst und das HTML rechts live gerendert. Nach Abschluss können Sie das Artifact mit **Auf Datenträger speichern** speichern. Bevor Sie einen Artifact-Speicherpfad dokumentieren oder ändern, MÜSSEN Sie `AGENTS.md` im Repository-Stamm lesen, Abschnitt **Daemon data directory contract**.
 
 Das Dropdown **Designsystem** enthält 71 integrierte Systeme: 2 handgeschriebene Starter (Neutral Modern, Warm Editorial) und 69 Produktsysteme, importiert aus [`awesome-design-md`](https://github.com/VoltAgent/awesome-design-md), gruppiert nach Kategorie (AI & LLM, Developer Tools, Productivity, Backend, Design Tools, Fintech, E-Commerce, Media, Automotive). Wählen Sie eines aus, um jeden Prototyp in der Ästhetik dieser Marke zu gestalten.
 
@@ -196,9 +196,9 @@ OD_API_TOKEN=
 
 ## Dauerhafter Speicher
 
-Before documenting, changing, or choosing any persistent daemon storage path,
-you MUST read root AGENTS.md / **Daemon data directory contract**.
-This Quickstart MUST NOT restate that contract or define storage paths.
+Bevor Sie einen persistenten Daemon-Speicherpfad dokumentieren, ändern oder auswählen,
+MÜSSEN Sie `AGENTS.md` im Repository-Stamm lesen, Abschnitt **Daemon data directory contract**.
+Dieser Quickstart DARF diesen Vertrag NICHT wiederholen oder Speicherpfade definieren.
 
 ---
 

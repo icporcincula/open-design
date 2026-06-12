@@ -264,7 +264,7 @@ Open Design (OD) ist die quelloffene Alternative. Dieselbe Schleife, dasselbe ar
 
 - 🤖 **Agent-native, modellunabhängig.** Wir liefern keinen Agent. Die `claude` / `codex` / `cursor-agent` / `copilot` / `hermes` / `kimi`, die bereits in deinem `PATH` liegen, sind die Design-Engine. Mit einem Klick wechseln.
 - 🧠 **Markenreif von Haus aus.** Jedes Rendering liest die aktive `DESIGN.md` — ein 9-teiliges Schema, das Farbpalette, Typografie, Abstände, Bewegung, Stimme und Anti-Patterns abdeckt. 150 Systeme werden mit dem Repo ausgeliefert (Linear, Stripe, Vercel, Airbnb, Apple, Tesla, Notion, Anthropic, Cursor, Supabase, Figma…). Lege einen Ordner ab, der Picker findet ihn.
-- 🖥️ **Local-first, BYOK at every layer.** Native desktop apps remain local-first with no cloud round-trip. Before describing daemon data paths, you MUST read root AGENTS.md / **Daemon data directory contract**.
+- 🖥️ **Local-first, BYOK auf jeder Ebene.** Native Desktop-Apps bleiben local-first, ohne Cloud-Roundtrip. Bevor Sie Daemon-Datenpfade beschreiben, MÜSSEN Sie `AGENTS.md` im Repository-Stamm lesen, Abschnitt **Daemon data directory contract**.
 - 🌍 **Komponierbar auf drei Ebenen.** **Plugins** tragen lauffähige Workflows · **Skills** tragen den Design-Geschmack des Agents · **Designsysteme** tragen die Marke. Alle drei sind einfache Dateien, die jeder erstellen, versionieren und veröffentlichen kann.
 - 🔁 **Eine bestehende Codebasis auffrischen.** Übergib dem Agent ein `git`-Repo + `DESIGN.md`, und er refaktoriert deine echten Komponenten auf die Markenvorgabe. Dedizierte Plugins migrieren Figma- / Pencil-Workflows in React- / Next.js- / Vue-Code.
 - 🔒 **Datenschutz aus Überzeugung.** Alles läuft dort, wo deine Daten liegen — dein Laptop, der Server deines Teams, dein Vercel-Projekt. Wenn das Netzwerk gebraucht wird, ist der BYOK-Proxy SSRF-geschützt.
@@ -550,7 +550,7 @@ Plugin-Registry-Endpunkt: `GET /api/plugins`. Verzeichnisübersicht → [`plugin
 |---|---|
 | Frontend | Next.js 16 App Router + React 18 + TypeScript |
 | Daemon | Node 24 · Express · SSE-Streaming · `better-sqlite3` |
-| Storage | Before changing or documenting daemon storage paths, you MUST read root AGENTS.md / **Daemon data directory contract**. This README MUST NOT restate it. |
+| Speicher | Bevor Sie Daemon-Speicherpfade ändern oder dokumentieren, MÜSSEN Sie `AGENTS.md` im Repository-Stamm lesen, Abschnitt **Daemon data directory contract**. Dieses README DARF ihn NICHT wiederholen. |
 | Vorschau | Sandboxed `srcdoc`-iframe + Streaming-`<artifact>`-Parser |
 | Export | HTML (eingebettet) · PDF (Browser-Druck) · PPTX (agentengesteuert) · ZIP · Markdown · MP4 (HyperFrames) |
 | Desktop | Electron-Shell + Sandboxed Renderer + Sidecar-IPC (STATUS · EVAL · SCREENSHOT · CONSOLE · CLICK · SHUTDOWN) |

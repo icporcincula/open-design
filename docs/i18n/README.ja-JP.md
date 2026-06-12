@@ -264,7 +264,7 @@ Open Design (OD) はそのオープンソースの代替ツールです。同じ
 
 - 🤖 **エージェントネイティブ、モデル非依存。** 私たちはエージェントを同梱しません。すでにあなたの `PATH` にある `claude` / `codex` / `cursor-agent` / `copilot` / `hermes` / `kimi` がデザインエンジンです。ワンクリックで差し替えられます。
 - 🧠 **デフォルトでブランドグレード。** すべてのレンダリングはアクティブな `DESIGN.md` を読み取ります——パレット、タイポグラフィ、スペーシング、モーション、ボイス、アンチパターンをカバーする 9 セクションのスキーマです。150 のシステムがリポジトリに同梱されています（Linear、Stripe、Vercel、Airbnb、Apple、Tesla、Notion、Anthropic、Cursor、Supabase、Figma…）。フォルダをドロップすれば、ピッカーがそれを見つけます。
-- 🖥️ **Local-first, BYOK at every layer.** Native desktop apps remain local-first with no cloud round-trip. Before describing daemon data paths, you MUST read root AGENTS.md / **Daemon data directory contract**.
+- 🖥️ **ローカルファースト、あらゆるレイヤーで BYOK。** ネイティブデスクトップアプリはクラウドへの往復なしにローカルファーストのままです。デーモンデータパスを説明する前に、ルートの `AGENTS.md` にある **Daemon data directory contract** を必ず読んでください。
 - 🌍 **3 つの平面で組み合わせ可能。** **プラグイン**は実行可能なワークフローを運び · **スキル**はエージェントのデザインの審美眼を運び · **デザインシステム**はブランドを運びます。これら 3 つはすべて、誰もが作成・バージョン管理・公開できるプレーンファイルです。
 - 🔁 **既存のコードベースをリフレッシュ。** `git` リポジトリ + `DESIGN.md` をエージェントに渡せば、あなたの実際のコンポーネントをブランド仕様にリファクタリングします。専用のプラグインが Figma / Pencil のワークフローを React / Next.js / Vue のコードへと移行します。
 - 🔒 **信念としてのプライバシー。** すべてがあなたのデータのある場所——あなたのラップトップ、チームのサーバー、Vercel プロジェクト——で動作します。ネットワークが必要なときも、BYOK プロキシは SSRF からガードされています。
@@ -550,7 +550,7 @@ pnpm guard && pnpm --filter @open-design/plugin-runtime typecheck
 |---|---|
 | フロントエンド | Next.js 16 App Router + React 18 + TypeScript |
 | デーモン | Node 24 · Express · SSE ストリーミング · `better-sqlite3` |
-| Storage | Before changing or documenting daemon storage paths, you MUST read root AGENTS.md / **Daemon data directory contract**. This README MUST NOT restate it. |
+| ストレージ | デーモンのストレージパスを変更または文書化する前に、ルートの `AGENTS.md` にある **Daemon data directory contract** を必ず読んでください。この README でそれを繰り返してはいけません。 |
 | プレビュー | サンドボックス化された `srcdoc` iframe + ストリーミング `<artifact>` パーサー |
 | エクスポート | HTML（インライン化） · PDF（ブラウザ印刷） · PPTX（エージェント駆動） · ZIP · Markdown · MP4（HyperFrames） |
 | デスクトップ | Electron シェル + サンドボックス化されたレンダラー + サイドカー IPC（STATUS · EVAL · SCREENSHOT · CONSOLE · CLICK · SHUTDOWN） |

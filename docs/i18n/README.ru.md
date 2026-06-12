@@ -264,7 +264,7 @@ Open Design (OD) — это открытая альтернатива. Тот ж
 
 - 🤖 **Агентно-нативный, не зависящий от модели.** Мы не поставляем агента. `claude` / `codex` / `cursor-agent` / `copilot` / `hermes` / `kimi`, уже находящиеся в вашем `PATH`, — это дизайн-движок. Переключайтесь одним кликом.
 - 🧠 **Брендовый уровень по умолчанию.** Каждый рендер читает активный `DESIGN.md` — схему из 9 разделов, охватывающую палитру, типографику, отступы, движение, голос, антипаттерны. 150 систем поставляются с репозиторием (Linear, Stripe, Vercel, Airbnb, Apple, Tesla, Notion, Anthropic, Cursor, Supabase, Figma…). Положите папку — и выбор её найдёт.
-- 🖥️ **Local-first, BYOK at every layer.** Native desktop apps remain local-first with no cloud round-trip. Before describing daemon data paths, you MUST read root AGENTS.md / **Daemon data directory contract**.
+- 🖥️ **Локальный по умолчанию, BYOK на каждом уровне.** Нативные десктопные приложения остаются локальными, без обращений в облако. Перед описанием путей данных демона необходимо прочитать корневой `AGENTS.md`, раздел **Daemon data directory contract**.
 - 🌍 **Компонуемый в трёх плоскостях.** **Плагины** несут запускаемые рабочие процессы · **навыки** несут дизайнерский вкус агента · **дизайн-системы** несут бренд. Все три — это обычные файлы, которые кто угодно может создавать, версионировать и публиковать.
 - 🔁 **Обновляйте существующую кодовую базу.** Передайте `git`-репозиторий + `DESIGN.md` агенту, и он отрефакторит ваши реальные компоненты под спецификацию бренда. Специальные плагины мигрируют рабочие процессы Figma / Pencil в код React / Next.js / Vue.
 - 🔒 **Конфиденциальность по убеждению.** Всё работает там, где живут ваши данные — ваш ноутбук, сервер вашей команды, ваш проект на Vercel. Когда нужна сеть, BYOK-прокси защищён от SSRF.
@@ -550,7 +550,7 @@ pnpm guard && pnpm --filter @open-design/plugin-runtime typecheck
 |---|---|
 | Фронтенд | Next.js 16 App Router + React 18 + TypeScript |
 | Демон | Node 24 · Express · SSE-стриминг · `better-sqlite3` |
-| Storage | Before changing or documenting daemon storage paths, you MUST read root AGENTS.md / **Daemon data directory contract**. This README MUST NOT restate it. |
+| Хранилище | Перед изменением или документированием путей хранения демона необходимо прочитать корневой `AGENTS.md`, раздел **Daemon data directory contract**. Этот README НЕ ДОЛЖЕН пересказывать его. |
 | Предпросмотр | Изолированный iframe `srcdoc` + стриминговый парсер `<artifact>` |
 | Экспорт | HTML (встроенный) · PDF (печать из браузера) · PPTX (управляемый агентом) · ZIP · Markdown · MP4 (HyperFrames) |
 | Десктоп | Electron-оболочка + изолированный рендерер + sidecar IPC (STATUS · EVAL · SCREENSHOT · CONSOLE · CLICK · SHUTDOWN) |

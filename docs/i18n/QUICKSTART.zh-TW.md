@@ -45,7 +45,7 @@ pnpm tools-dev run web # 在前景啟動 daemon + web
 pnpm tools-dev # 在背景啟動 daemon + web + desktop
 ```
 
-Before documenting or changing any artifact storage path, you MUST read root AGENTS.md / **Daemon data directory contract**.
+首次載入時，應用程式會掃描已安裝的 code-agent CLI（Claude Code / Codex / Devin for Terminal / Gemini / OpenCode / Cursor Agent / Qwen / Qoder CLI），並自動選擇其中之一；預設使用 `web-prototype` skill 與 `Neutral Modern` design system。輸入 prompt，點擊 **Send**。Agent 將以串流方式輸出至左側面板；`<artifact>` 標籤會被解析，HTML 在右側即時渲染。執行完成後，點擊 **Save to disk** 儲存 artifact。在記錄或修改任何 artifact 儲存路徑之前，必須閱讀儲存庫根目錄 `AGENTS.md` 中的 **Daemon data directory contract**。
 
 **Design system** 下拉選單內建 **129 套 design system** —— 包含 2 套手工編寫的 starter（Neutral Modern、Warm Editorial）、70 套打包的產品級系統，以及來自 [`awesome-design-skills`](https://github.com/bergside/awesome-design-skills) 的 57 個 design skill。選擇任意一套，所有原型都會應用該品牌的視覺風格。
 
@@ -196,9 +196,9 @@ OD_API_TOKEN=
 
 ## 持久化儲存
 
-Before documenting, changing, or choosing any persistent daemon storage path,
-you MUST read root AGENTS.md / **Daemon data directory contract**.
-This Quickstart MUST NOT restate that contract or define storage paths.
+在記錄、修改或選擇任何持久 daemon 儲存路徑之前，
+必須閱讀儲存庫根目錄 `AGENTS.md` 中的 **Daemon data directory contract**。
+本 Quickstart 不得重述該契約，也不得定義儲存路徑。
 
 ---
 

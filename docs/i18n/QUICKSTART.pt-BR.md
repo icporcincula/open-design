@@ -45,7 +45,7 @@ Para a shell desktop e todos os sidecars gerenciados em background:
 pnpm tools-dev # starts daemon + web + desktop in the background
 ```
 
-Before documenting or changing any artifact storage path, you MUST read root AGENTS.md / **Daemon data directory contract**.
+No primeiro carregamento, o app detecta o CLI de agente instalado (Claude Code / Codex / Devin for Terminal / Gemini / OpenCode / Cursor Agent / Qwen), seleciona automaticamente e usa por padrão o skill `web-prototype` + design system `Neutral Modern`. Digite um prompt e clique em **Send**. O agente faz streaming no painel da esquerda; a tag `<artifact>` é parseada e o HTML é renderizado ao vivo na direita. Ao terminar, clique em **Save to disk** para persistir o artifact. Antes de documentar ou alterar qualquer caminho de armazenamento de artifact, você DEVE ler o `AGENTS.md` na raiz, seção **Daemon data directory contract**.
 
 O dropdown **Design system** vem com **129 design systems** — 2 starters escritos à mão (Neutral Modern, Warm Editorial), 70 sistemas de produto bundled e 57 design skills vindos de [`awesome-design-skills`](https://github.com/bergside/awesome-design-skills). Escolha um para vestir cada protótipo na estética daquela marca.
 
@@ -196,9 +196,9 @@ OD_API_TOKEN=
 
 ## Armazenamento persistente
 
-Before documenting, changing, or choosing any persistent daemon storage path,
-you MUST read root AGENTS.md / **Daemon data directory contract**.
-This Quickstart MUST NOT restate that contract or define storage paths.
+Antes de documentar, alterar ou escolher qualquer caminho persistente de armazenamento do daemon,
+você DEVE ler o `AGENTS.md` na raiz, seção **Daemon data directory contract**.
+Este Quickstart NÃO DEVE repetir esse contrato nem definir caminhos de armazenamento.
 
 ---
 

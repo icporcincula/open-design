@@ -153,9 +153,9 @@ OD_API_TOKEN=
 
 ## 영구 저장소
 
-Before documenting, changing, or choosing any persistent daemon storage path,
-you MUST read root AGENTS.md / **Daemon data directory contract**.
-This Quickstart MUST NOT restate that contract or define storage paths.
+영구 daemon 저장 경로를 문서화하거나, 변경하거나, 선택하기 전에
+반드시 루트 `AGENTS.md`의 **Daemon data directory contract**를 읽어야 합니다.
+이 Quickstart는 그 계약을 다시 서술하거나 저장 경로를 정의해서는 안 됩니다.
 
 ---
 
@@ -182,7 +182,7 @@ pnpm tools-dev run web # daemon + web을 포그라운드로 시작합니다
 pnpm tools-dev # daemon + web + desktop을 백그라운드로 시작합니다
 ```
 
-Before documenting or changing any artifact storage path, you MUST read root AGENTS.md / **Daemon data directory contract**.
+처음 로드할 때 앱은 설치된 코드 에이전트 CLI(Claude Code / Codex / Gemini / OpenCode / Cursor Agent / Qwen)를 감지해 자동으로 선택하고, 기본값으로 `web-prototype` skill과 `Neutral Modern` design system을 사용합니다. 프롬프트를 입력하고 **Send**를 누르세요. 에이전트 출력은 왼쪽 패널에 스트리밍되고, `<artifact>` 태그가 파싱되어 HTML이 오른쪽에 실시간으로 렌더링됩니다. 완료되면 **Save to disk**로 artifact를 저장할 수 있습니다. artifact 저장 경로를 문서화하거나 변경하기 전에 반드시 루트 `AGENTS.md`의 **Daemon data directory contract**를 읽어야 합니다.
 
 **Design system** 드롭다운에는 71개의 내장 시스템이 들어 있습니다. 직접 작성한 스타터 2개(Neutral Modern, Warm Editorial)와 [`awesome-design-md`](https://github.com/VoltAgent/awesome-design-md)에서 가져온 69개의 제품 시스템으로, 카테고리별(AI & LLM, Developer Tools, Productivity, Backend, Design Tools, Fintech, E-Commerce, Media, Automotive)로 묶여 있습니다. 하나를 고르면 모든 프로토타입이 그 브랜드의 미감으로 입혀집니다. 여기에 [`awesome-design-skills`](https://github.com/bergside/awesome-design-skills)에서 가져온 57개의 디자인 skill도 함께 제공됩니다.
 
