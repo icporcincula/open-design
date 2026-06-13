@@ -45,7 +45,9 @@ export type IconName =
   | 'lightbulb'
   | 'link'
   | 'integrations-filled'
+  | 'maximize'
   | 'mic'
+  | 'minimize'
   | 'minus'
   | 'more-horizontal'
   | 'orbit'
@@ -719,6 +721,24 @@ export function Icon({ name, size = 14, strokeWidth = 1.6, ...rest }: Props) {
           <path d="M11 5 6 9H2v6h4l5 4z" />
           <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
           <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </svg>
+      );
+    case 'maximize':
+      return (
+        <svg {...common}>
+          <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+          <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+          <path d="M21 16v3a2 2 0 0 1-2 2h-3" />
+          <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+        </svg>
+      );
+    case 'minimize':
+      return (
+        <svg {...common}>
+          <path d="M8 3v3a2 2 0 0 1-2 2H3" />
+          <path d="M16 3v3a2 2 0 0 0 2 2h3" />
+          <path d="M21 16h-3a2 2 0 0 0-2 2v3" />
+          <path d="M3 16h3a2 2 0 0 1 2 2v3" />
         </svg>
       );
     case 'zoom-in':

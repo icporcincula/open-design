@@ -11,14 +11,34 @@
 
 import type { MemoryTreeNode } from './automations.js';
 
-export type MemoryType = 'user' | 'feedback' | 'project' | 'reference';
+// `profile` — the singleton structured "who I am / how I work" entry (one
+//   well-known id `user_profile`) the intent gateway reads to rewrite a short
+//   query into a full brief; seeded at onboarding, edited in the Profile tab.
+// `rule`    — a verified rule (assertion + check) distilled from past
+//   corrections; the post-turn self-verify pass enforces these as rubric items.
+// Both flow through the same `MEMORY.md` active-set gate as the original four,
+// so the master `enabled` switch turns the whole feature off for free.
+export type MemoryType =
+  | 'user'
+  | 'feedback'
+  | 'project'
+  | 'reference'
+  | 'profile'
+  | 'rule';
 
+// Order is the canonical prompt-section / tree order: profile first (most
+// foundational), then the original four, then rule last (enforced checks).
 export const MEMORY_TYPES: readonly MemoryType[] = [
+  'profile',
   'user',
   'feedback',
   'project',
   'reference',
+  'rule',
 ] as const;
+
+/** The well-known singleton id for the structured user profile. */
+export const PROFILE_MEMORY_ID = 'user_profile';
 
 // Listing payload — frontmatter only, no body. The settings panel pulls
 // the full body lazily through `GET /api/memory/:id` when the user
@@ -58,12 +78,32 @@ export interface MemorySuggestion {
   };
 }
 
+// The four pluggable memory hooks, surfaced as default-on booleans across the
+// config DTOs. The master `enabled` switch gates ALL of them (when off,
+// `composeMemoryBody` returns '' and both loops die); these toggle individual
+// hooks while memory stays on:
+//   - chatExtractionEnabled — sediment new facts from chat turns (existing).
+//   - profileEnabled        — inject the structured profile into the prompt.
+//   - rewriteEnabled        — PRE: expand a short query into a task-brief card.
+//   - verifyEnabled         — POST: self-verify against rules + emit scorecard.
+export interface MemoryHookFlags {
+  profileEnabled: boolean;
+  rewriteEnabled: boolean;
+  verifyEnabled: boolean;
+}
+
 // GET /api/memory
 export interface MemoryListResponse {
   /** True when the daemon will inject memory into the next system prompt. */
   enabled: boolean;
   /** True when new chat turns may create memory suggestions/extractions. */
   chatExtractionEnabled: boolean;
+  /** Inject the structured `user_profile` into the prompt (PRE foundation). */
+  profileEnabled: boolean;
+  /** PRE: expand short queries into a task brief + emit the brief card. */
+  rewriteEnabled: boolean;
+  /** POST: self-verify the output against `rule` memories + emit a scorecard. */
+  verifyEnabled: boolean;
   /** Absolute path to the memory directory (informational, for the settings UI). */
   rootDir: string;
   /** The MEMORY.md index body — usually a list of `- [Name](file.md) — hook` lines. */
@@ -168,6 +208,10 @@ export interface UpdateMemoryIndexRequest {
 export interface UpdateMemoryConfigRequest {
   enabled?: boolean;
   chatExtractionEnabled?: boolean;
+  /** Per-hook toggles. Omit to leave unchanged; default-on when never set. */
+  profileEnabled?: boolean;
+  rewriteEnabled?: boolean;
+  verifyEnabled?: boolean;
   /** Pass `null` to clear the override and fall back to auto-pick. Pass an
    *  object to commit a custom provider. Omit to leave unchanged. */
   extraction?: MemoryExtractionConfig | null;
@@ -176,6 +220,9 @@ export interface UpdateMemoryConfigRequest {
 export interface MemoryConfigResponse {
   enabled: boolean;
   chatExtractionEnabled: boolean;
+  profileEnabled: boolean;
+  rewriteEnabled: boolean;
+  verifyEnabled: boolean;
   extraction: MemoryExtractionConfig | null;
 }
 

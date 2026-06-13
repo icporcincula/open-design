@@ -37,8 +37,20 @@ import {
 } from '../providers/registry';
 import { notifyConnectorsChanged } from './connectors-events';
 import { hasConnectorStatusChanges } from './connectors-state';
+import { MemoryProfilePanel } from './MemoryProfilePanel';
+import { MemoryHooksPanel, type MemoryHookKey } from './MemoryHooksPanel';
 
-const TYPES: MemoryType[] = ['user', 'feedback', 'project', 'reference'];
+// All manually-selectable memory types. `profile` (the structured singleton)
+// and `rule` (verified checks the POST loop enforces) join the original four
+// so the editor type-picker and the saved-memory filter pills surface them.
+const TYPES: MemoryType[] = [
+  'profile',
+  'user',
+  'feedback',
+  'project',
+  'reference',
+  'rule',
+];
 
 interface DraftEntry {
   id?: string;
@@ -97,6 +109,130 @@ const STARTERS: ReadonlyArray<{
     nameKey: 'settings.memoryStarterProjectName',
     descKey: 'settings.memoryStarterProjectDesc',
     bodyKey: 'settings.memoryStarterProjectBody',
+  },
+];
+
+type MemoryGuideAction = 'profile' | 'brief' | 'review';
+
+const MEMORY_GUIDE_ACTIONS: ReadonlyArray<{
+  id: MemoryGuideAction;
+  step: string;
+  title: string;
+  body: string;
+  cta: string;
+  icon: IconName;
+}> = [
+  {
+    id: 'profile',
+    step: '1',
+    title: 'Create your work profile',
+    body: 'Save who you are, what you work on, and the defaults the assistant should reuse.',
+    cta: 'Add profile memory',
+    icon: 'edit',
+  },
+  {
+    id: 'brief',
+    step: '2',
+    title: 'Rewrite short asks into full briefs',
+    body: 'Before every task, Memory fills in background, preferences, files, and delivery rules.',
+    cta: 'See the rewrite',
+    icon: 'sparkles',
+  },
+  {
+    id: 'review',
+    step: '3',
+    title: 'Confirm what gets learned',
+    body: 'After a task, review useful facts before they shape future chats.',
+    cta: 'Review saved memory',
+    icon: 'check',
+  },
+];
+
+const MEMORY_SCENARIOS: ReadonlyArray<{
+  title: string;
+  label: string;
+  icon: IconName;
+  example: string;
+  payoff: string;
+  draft: Omit<DraftEntry, 'id'>;
+}> = [
+  {
+    title: 'My background',
+    label: 'Profile',
+    icon: 'home',
+    example: '“Help me polish this deck”',
+    payoff: 'Adds your role, audience, domain, and level of detail.',
+    draft: {
+      name: 'My background',
+      description: 'Role, domain, audience, and what I usually work on.',
+      type: 'user',
+      body: '- Role: \n- Company / team: \n- Domain: \n- Audience I usually write for: \n- Current goals: \n\nWhen to use: Any task where the assistant needs to infer intent from a short request.',
+    },
+  },
+  {
+    title: 'Common tasks',
+    label: 'Task patterns',
+    icon: 'kanban',
+    example: '“Do another one like last time”',
+    payoff: 'Reuses the expected workflow, inputs, and final artifact shape.',
+    draft: {
+      name: 'Common tasks',
+      description: 'Repeated workflows I expect the assistant to recognize.',
+      type: 'project',
+      body: '- Repeated task: \n- Usual inputs: \n- Expected output: \n- Done means: \n\nWhen to use: Similar future tasks where I want fewer setup questions.',
+    },
+  },
+  {
+    title: 'Delivery preferences',
+    label: 'Output',
+    icon: 'send',
+    example: '“Make it ready to share”',
+    payoff: 'Applies language, tone, format, file-writing, and validation defaults.',
+    draft: {
+      name: 'Delivery preferences',
+      description: 'How I want work delivered by default.',
+      type: 'feedback',
+      body: '- Language: \n- Tone: \n- Output format: \n- Should edit files directly: yes / no\n- Validation expected: \n\nWhen to use: Any task with a deliverable.',
+    },
+  },
+  {
+    title: 'Active projects',
+    label: 'Project context',
+    icon: 'folder',
+    example: '“Fix the current page”',
+    payoff: 'Remembers the product, repo, active files, design system, and review surface.',
+    draft: {
+      name: 'Active project context',
+      description: 'Current project, important files, and where the result should land.',
+      type: 'project',
+      body: '- Project: \n- Important files / artifacts: \n- Design system or reference style: \n- Review surface: \n- Constraints: \n\nWhen to use: Tasks that mention “current page”, “this file”, or “same project”.',
+    },
+  },
+  {
+    title: 'Feedback meanings',
+    label: 'Taste',
+    icon: 'comment',
+    example: '“This is too messy”',
+    payoff: 'Turns short feedback into concrete fixes instead of asking what you mean.',
+    draft: {
+      name: 'Feedback meanings',
+      description: 'What my repeated feedback phrases usually mean.',
+      type: 'feedback',
+      body: '- When I say “too messy”: reduce competing messages, lower density, and clarify the primary action.\n- When I say “not polished”: improve spacing, hierarchy, typography, and responsive fit.\n- When I say “do not restart”: edit the current artifact in place.\n\nWhen to use: Follow-up critique, UI polish, copy polish, and artifact revision.',
+    },
+  },
+  {
+    title: 'Workflow rules',
+    label: 'Process',
+    icon: 'hammer',
+    example: '“Ship this”',
+    payoff: 'Adds the checks, screenshots, commands, and PR behavior you expect.',
+    draft: {
+      name: 'Workflow rules',
+      description: 'Checks and process rules the assistant should apply for repeat work.',
+      type: 'reference',
+      body: '- For code changes: \n- For UI changes: \n- For docs / strategy changes: \n- Before marking done: \n\nWhen to use: Any task that needs a reliable finish line.',
+    },
   },
 ];
 
@@ -175,6 +311,9 @@ async function fetchMemoryList(): Promise<MemoryListResponse> {
     return {
       enabled: true,
       chatExtractionEnabled: true,
+      profileEnabled: true,
+      rewriteEnabled: true,
+      verifyEnabled: true,
       rootDir: '',
       index: '',
       entries: [],
@@ -241,13 +380,17 @@ async function setMemoryEnabled(enabled: boolean): Promise<boolean> {
   return resp.ok;
 }
 
-async function setMemoryChatExtractionEnabled(
-  chatExtractionEnabled: boolean,
+// Patch a single per-hook config flag. The PATCH parser merges any subset of
+// { chatExtractionEnabled, profileEnabled, rewriteEnabled, verifyEnabled } so
+// the hooks panel can flip one flag without re-sending the others.
+async function patchMemoryConfigFlag(
+  flag: MemoryHookKey,
+  value: boolean,
 ): Promise<boolean> {
   const resp = await fetch('/api/memory/config', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chatExtractionEnabled }),
+    body: JSON.stringify({ [flag]: value }),
   });
   return resp.ok;
 }
@@ -687,7 +830,7 @@ function extractionCardMeta(
 }
 
 type FlashKind = 'created' | 'saved' | 'deleted' | 'indexSaved' | 'pathCopied';
-type MemoryTab = 'manual' | 'chat' | 'connected';
+type MemoryTab = 'profile' | 'manual' | 'chat' | 'connected';
 
 interface MemorySectionProps {
   onOpenConnectors?: () => void;
@@ -704,6 +847,11 @@ export function MemorySection({
   const logoTheme = useResolvedTheme();
   const [enabled, setEnabled] = useState(true);
   const [chatExtractionEnabled, setChatExtractionEnabled] = useState(true);
+  // The three new per-hook flags (default-on). They live alongside the
+  // existing chat-extraction flag and are surfaced through MemoryHooksPanel.
+  const [profileEnabled, setProfileEnabled] = useState(true);
+  const [rewriteEnabled, setRewriteEnabled] = useState(true);
+  const [verifyEnabled, setVerifyEnabled] = useState(true);
   const [rootDir, setRootDir] = useState('');
   const [index, setIndex] = useState('');
   const [indexDraft, setIndexDraft] = useState<string | null>(null);
@@ -725,6 +873,8 @@ export function MemorySection({
   );
   const editorRef = useRef<HTMLDivElement | null>(null);
   const editorNameRef = useRef<HTMLInputElement | null>(null);
+  const gatewayRef = useRef<HTMLDivElement | null>(null);
+  const recordsRef = useRef<HTMLElement | null>(null);
   const editingTarget = editing?.id ?? (editing ? 'new' : null);
   // Recent LLM-extraction attempts, newest first. Driven by a one-shot
   // fetch on mount + live SSE updates merged by id so phase transitions
@@ -809,10 +959,12 @@ export function MemorySection({
 
   const TYPE_LABEL: Record<MemoryType, string> = useMemo(
     () => ({
+      profile: t('settings.memoryTypeProfile'),
       user: t('settings.memoryTypeUser'),
       feedback: t('settings.memoryTypeFeedback'),
       project: t('settings.memoryTypeProject'),
       reference: t('settings.memoryTypeReference'),
+      rule: t('settings.memoryTypeRule'),
     }),
     [t],
   );
@@ -824,6 +976,9 @@ export function MemorySection({
     ]);
     setEnabled(list.enabled);
     setChatExtractionEnabled(list.chatExtractionEnabled !== false);
+    setProfileEnabled(list.profileEnabled !== false);
+    setRewriteEnabled(list.rewriteEnabled !== false);
+    setVerifyEnabled(list.verifyEnabled !== false);
     setRootDir(list.rootDir);
     setIndex(list.index);
     setEntries(list.entries);
@@ -1067,6 +1222,38 @@ export function MemorySection({
   const startNew = useCallback(() => {
     setEditing({ ...EMPTY_DRAFT });
   }, []);
+
+  const onGuideAction = useCallback(
+    (action: MemoryGuideAction) => {
+      if (action === 'profile') {
+        // The structured profile editor now owns "create your work profile",
+        // so the guide CTA points at the dedicated Profile tab instead of
+        // seeding a blank manual entry.
+        setActiveTab('profile');
+        return;
+      }
+      if (action === 'brief') {
+        gatewayRef.current?.scrollIntoView?.({
+          block: 'start',
+          behavior: 'smooth',
+        });
+        return;
+      }
+      recordsRef.current?.scrollIntoView?.({
+        block: 'start',
+        behavior: 'smooth',
+      });
+    },
+    [],
+  );
+
+  const onUseScenario = useCallback(
+    (scenario: (typeof MEMORY_SCENARIOS)[number]) => {
+      setActiveTab('manual');
+      setEditing({ ...scenario.draft });
+    },
+    [],
+  );
 
   const cancelEdit = useCallback(() => {
     setEditing(null);
@@ -1353,11 +1540,36 @@ export function MemorySection({
     await setMemoryEnabled(next);
   }, []);
 
-  const onToggleChatExtraction = useCallback(async (next: boolean) => {
-    setChatExtractionEnabled(next);
-    const ok = await setMemoryChatExtractionEnabled(next);
-    if (!ok) setChatExtractionEnabled((current) => !current);
-  }, []);
+  // Map each hook key to its setter so a single optimistic-set + rollback path
+  // covers all four toggles.
+  const HOOK_SETTERS: Record<MemoryHookKey, (fn: (cur: boolean) => boolean) => void> = {
+    profileEnabled: setProfileEnabled,
+    rewriteEnabled: setRewriteEnabled,
+    verifyEnabled: setVerifyEnabled,
+    chatExtractionEnabled: setChatExtractionEnabled,
+  };
+
+  const onToggleHook = useCallback(
+    async (key: MemoryHookKey, next: boolean) => {
+      const setter = HOOK_SETTERS[key];
+      setter(() => next);
+      const ok = await patchMemoryConfigFlag(key, next);
+      if (!ok) setter((current) => !current);
+    },
+    // HOOK_SETTERS references stable useState setters, so the deps are empty.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const hookFlags = useMemo<Record<MemoryHookKey, boolean>>(
+    () => ({
+      profileEnabled,
+      rewriteEnabled,
+      verifyEnabled,
+      chatExtractionEnabled,
+    }),
+    [profileEnabled, rewriteEnabled, verifyEnabled, chatExtractionEnabled],
+  );
 
   const onSaveIndex = useCallback(async () => {
     if (indexDraft === null) return;
@@ -1401,6 +1613,12 @@ export function MemorySection({
 	    caption: string;
 	    icon: IconName;
 	  }> = [
+	    {
+	      id: 'profile',
+	      label: t('settings.memoryProfileTab'),
+	      caption: t('settings.memoryProfileTabCaption'),
+	      icon: 'home',
+	    },
 	    {
 	      id: 'manual',
 	      label: 'Add manually',
@@ -1627,6 +1845,120 @@ export function MemorySection({
         </div>
       ) : null}
 
+      <div className="memory-work-profile">
+        <div className="memory-work-profile-copy">
+          <span className="memory-kicker">Work profile</span>
+          <h4>Memory turns short requests into complete task briefs.</h4>
+          <p>
+            Save the context you repeat in chats. Before every task, OpenDesign
+            can use it to infer what you mean, reduce setup questions, and send
+            the agent a more complete instruction.
+          </p>
+        </div>
+        <div className="memory-brief-flow" aria-label="Memory task flow">
+          <span>Short ask</span>
+          <Icon name="chevron-right" size={14} />
+          <span>Memory</span>
+          <Icon name="chevron-right" size={14} />
+          <span>Agent-ready brief</span>
+        </div>
+      </div>
+
+      <div className="memory-guide-grid" aria-label="Memory setup steps">
+        {MEMORY_GUIDE_ACTIONS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="memory-guide-card"
+            onClick={() => onGuideAction(item.id)}
+          >
+            <span className="memory-guide-icon">
+              <Icon name={item.icon} size={15} />
+            </span>
+            <span className="memory-guide-copy">
+              <span className="memory-guide-step">Step {item.step}</span>
+              <strong>{item.title}</strong>
+              <small>{item.body}</small>
+              <span className="memory-guide-cta">{item.cta}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div ref={gatewayRef} className="memory-gateway-card">
+        <div className="memory-gateway-head">
+          <div>
+            <span className="memory-kicker">Before every task</span>
+            <h4>Memory Gateway</h4>
+          </div>
+          <span className="memory-source-badge">Automatic when Memory is on</span>
+        </div>
+        <div className="memory-gateway-example">
+          <div>
+            <span className="memory-example-label">You type</span>
+            <p>“Help me fix the homepage. It feels too messy.”</p>
+          </div>
+          <div>
+            <span className="memory-example-label">Agent receives</span>
+            <pre>{`task_type: homepage_refine
+known_context:
+  project: active project and current artifact
+  profile: user's role, audience, and goals
+  feedback_meaning: reduce density and competing CTAs
+delivery:
+  edit the current file in place
+  validate desktop and mobile fit
+ask_user_only_if:
+  target file cannot be determined`}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div className="memory-scenario-section">
+        <div className="memory-subsection-head">
+          <div>
+            <h4>What should Memory remember?</h4>
+            <p className="hint">
+              Start with one scenario. Each template creates a real memory you
+              can edit before saving.
+            </p>
+          </div>
+          <span className="memory-source-badge">
+            {MEMORY_SCENARIOS.length} scenarios
+          </span>
+        </div>
+        <div className="memory-scenario-grid">
+          {MEMORY_SCENARIOS.map((scenario) => {
+            const savedCount = entries.filter(
+              (entry) => entry.type === scenario.draft.type,
+            ).length;
+            return (
+              <button
+                key={scenario.title}
+                type="button"
+                className="memory-scenario-card"
+                onClick={() => onUseScenario(scenario)}
+              >
+                <span className="memory-scenario-topline">
+                  <span className="memory-scenario-icon">
+                    <Icon name={scenario.icon} size={14} />
+                  </span>
+                  <span className="memory-scenario-label">
+                    {scenario.label}
+                  </span>
+                  <span className="memory-scenario-count">
+                    {savedCount} saved
+                  </span>
+                </span>
+                <strong>{scenario.title}</strong>
+                <small>{scenario.example}</small>
+                <span>{scenario.payoff}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div
         className="memory-source-tabs"
         role="tablist"
@@ -1652,6 +1984,12 @@ export function MemorySection({
           </button>
         ))}
       </div>
+
+      {activeTab === 'profile' ? (
+        <div className="memory-tab-panel memory-profile-tab-panel">
+          <MemoryProfilePanel enabled={enabled} />
+        </div>
+      ) : null}
 
       {activeTab === 'manual' ? (
         <div className="memory-tab-panel memory-manual-panel">
@@ -1867,35 +2205,19 @@ export function MemorySection({
       ) : null}
 
       {activeTab === 'chat' ? (
-        <div className="memory-tab-panel">
-          <div className="memory-source-summary">
-            <span className="memory-block-icon">
-              <Icon name="history" size={15} />
-            </span>
-            <div>
-              <h4>Learn from chats</h4>
-              <p className="hint">
-                OpenDesign can learn preferences and project facts from future
-                chat turns.
-              </p>
-            </div>
-            <label
-              className="memory-source-toggle memory-chat-learning-toggle"
-              title="Learn from chat conversations"
-            >
-              <span>{chatExtractionEnabled ? 'On' : 'Off'}</span>
-              <span className="toggle-switch toggle-switch-sm">
-                <input
-                  type="checkbox"
-                  aria-label="Learn from chat conversations"
-                  checked={chatExtractionEnabled}
-                  onChange={(e) => onToggleChatExtraction(e.target.checked)}
-                  disabled={!enabled}
-                />
-                <span className="toggle-slider" />
-              </span>
-            </label>
-          </div>
+        <div className="memory-tab-panel memory-hooks-tab-panel">
+          {/*
+            The pluggable-hooks panel exposes all four per-hook toggles (the PRE
+            rewrite, the structured-profile injection, the POST verify, and the
+            existing chat extraction) wired through PATCH /api/memory/config
+            with optimistic-set + rollback. The master switch in the section
+            header still kills everything.
+          */}
+          <MemoryHooksPanel
+            enabled={enabled}
+            flags={hookFlags}
+            onToggle={onToggleHook}
+          />
         </div>
       ) : null}
 
@@ -2174,7 +2496,7 @@ export function MemorySection({
 
       </section>
 
-      <section className="settings-section settings-section-card memory-records-section">
+      <section ref={recordsRef} className="settings-section settings-section-card memory-records-section">
         <div className="memory-management-panel">
           <div className="memory-subsection-head">
             <div>
@@ -2257,78 +2579,6 @@ export function MemorySection({
               ) : null}
             </div>
           </div>
-
-          {treeFolders.length > 0 ? (
-            <details className="library-group memory-collapsible-card" open>
-              <summary className="memory-details-summary">
-                <span className="memory-details-title">Memory tree</span>
-                <span className="filter-pill-count">{memoryTree.length}</span>
-              </summary>
-              <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-                {treeFolders.map((folder) => {
-                  const children = treeChildren.get(folder.id) ?? [];
-                  return (
-                    <div
-                      key={folder.id}
-                      className="library-card"
-                      style={{ alignItems: 'stretch' }}
-                    >
-                      <div className="library-card-info" style={{ width: '100%' }}>
-                        <div className="library-card-title-row">
-                          <span className="library-card-name">{folder.name}</span>
-                          <span className="library-card-badge">{folder.path}</span>
-                        </div>
-                        <div className="library-card-desc">
-                          {children.length} {children.length === 1 ? 'node' : 'nodes'}
-                        </div>
-                        {children.length > 0 ? (
-                          <ul
-                            style={{
-                              display: 'grid',
-                              gap: 6,
-                              margin: '8px 0 0',
-                              padding: 0,
-                              listStyle: 'none',
-                            }}
-                          >
-                            {children.map((child) => (
-                              <li
-                                key={child.id}
-                                className="memory-tree-child-row"
-                              >
-                                <span style={{ minWidth: 0 }}>
-                                  <span className="library-card-name">{child.name}</span>{' '}
-                                  <span className="library-card-badge">{child.id}</span>
-                                  {child.description ? (
-                                    <span
-                                      className="library-card-desc"
-                                      style={{ display: 'block' }}
-                                    >
-                                      {child.description}
-                                    </span>
-                                  ) : null}
-                                </span>
-                                <div className="memory-card-actions">
-                                  <button
-                                    type="button"
-                                    className="ghost library-card-action"
-                                    onClick={() => startEdit(child.id)}
-                                    title={t('settings.memoryEdit')}
-                                  >
-                                    <Icon name="edit" size={14} />
-                                  </button>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </details>
-          ) : null}
 
           <div className="library-content memory-unified-list">
             {unifiedMemoryCount === 0 ? (
@@ -2433,6 +2683,81 @@ export function MemorySection({
                 </div>
               </div>
             </details>
+            {treeFolders.length > 0 ? (
+              <details className="library-group memory-advanced-card">
+                <summary className="memory-details-summary">
+                  <span className="memory-details-title">Memory tree</span>
+                  <span className="filter-pill-count">{memoryTree.length}</span>
+                </summary>
+                <p className="memory-advanced-hint">
+                  Technical view of the same saved memories. Most users only
+                  need the saved-memory list above.
+                </p>
+                <div className="memory-tree-advanced">
+                  {treeFolders.map((folder) => {
+                    const children = treeChildren.get(folder.id) ?? [];
+                    return (
+                      <div
+                        key={folder.id}
+                        className="library-card"
+                        style={{ alignItems: 'stretch' }}
+                      >
+                        <div className="library-card-info" style={{ width: '100%' }}>
+                          <div className="library-card-title-row">
+                            <span className="library-card-name">{folder.name}</span>
+                            <span className="library-card-badge">{folder.path}</span>
+                          </div>
+                          <div className="library-card-desc">
+                            {children.length} {children.length === 1 ? 'node' : 'nodes'}
+                          </div>
+                          {children.length > 0 ? (
+                            <ul
+                              style={{
+                                display: 'grid',
+                                gap: 6,
+                                margin: '8px 0 0',
+                                padding: 0,
+                                listStyle: 'none',
+                              }}
+                            >
+                              {children.map((child) => (
+                                <li
+                                  key={child.id}
+                                  className="memory-tree-child-row"
+                                >
+                                  <span style={{ minWidth: 0 }}>
+                                    <span className="library-card-name">{child.name}</span>{' '}
+                                    <span className="library-card-badge">{child.id}</span>
+                                    {child.description ? (
+                                      <span
+                                        className="library-card-desc"
+                                        style={{ display: 'block' }}
+                                      >
+                                        {child.description}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                  <div className="memory-card-actions">
+                                    <button
+                                      type="button"
+                                      className="ghost library-card-action"
+                                      onClick={() => startEdit(child.id)}
+                                      title={t('settings.memoryEdit')}
+                                    >
+                                      <Icon name="edit" size={14} />
+                                    </button>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
+            ) : null}
           </div>
         </details>
       </section>

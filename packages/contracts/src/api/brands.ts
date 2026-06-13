@@ -1,0 +1,140 @@
+// Brand DTOs — the shared web/daemon contract for the Brands surface.
+//
+// A "brand" is a design system enriched with the parts that make styling into
+// *branding*: an identity (name, tagline, logo), a measured design language
+// (colors, typography), and a voice. Brands are extracted from a live URL by
+// the daemon (deterministic prefetch → provisional preview → registered design
+// system) and rendered by the web Brands library + detail pages.
+//
+// Pure TypeScript: no Node, browser, or daemon imports (contracts purity).
+
+/** The seven semantic color roles every brand palette resolves to. */
+export const BRAND_COLOR_ROLES = [
+  'background',
+  'surface',
+  'foreground',
+  'muted',
+  'border',
+  'accent',
+  'accent-secondary',
+] as const;
+export type BrandColorRole = (typeof BRAND_COLOR_ROLES)[number];
+
+export interface BrandColor {
+  role: BrandColorRole;
+  /** Lowercase #rrggbb. */
+  hex: string;
+  /** Optional oklch() string (filled by enrichment; empty in the provisional). */
+  oklch: string;
+  name: string;
+  usage: string;
+}
+
+export interface BrandFontSpec {
+  family: string;
+  fallbacks: string[];
+  weights: number[];
+  /** Full Google Fonts stylesheet URL when the face is freely loadable. */
+  googleFontsUrl?: string;
+  notes?: string;
+}
+
+export interface BrandVoice {
+  adjectives: string[];
+  tone: string;
+  messagingPillars: string[];
+  vocabulary: { use: string[]; avoid: string[] };
+}
+
+export interface BrandImagery {
+  style: string;
+  subjects: string[];
+  treatment: string;
+  avoid: string[];
+}
+
+export interface BrandLayout {
+  radius: string;
+  borderWeight: string;
+  spacing: string;
+  postureRules: string[];
+}
+
+/** The canonical brand kit — the single source of truth for every brand surface. */
+export interface Brand {
+  name: string;
+  tagline: string;
+  description: string;
+  sourceUrl: string;
+  logo: {
+    /** Path relative to the brand dir, e.g. "logos/header-inline.svg". */
+    primary: string | null;
+    alternates: string[];
+    notes: string;
+  };
+  colors: BrandColor[];
+  typography: {
+    display: BrandFontSpec;
+    body: BrandFontSpec;
+    mono?: BrandFontSpec;
+  };
+  voice: BrandVoice;
+  imagery: BrandImagery;
+  layout: BrandLayout;
+}
+
+export type BrandStatus = 'extracting' | 'ready' | 'failed';
+
+/** Server-written lifecycle record stored next to brand.json. */
+export interface BrandMeta {
+  id: string;
+  sourceUrl: string;
+  createdAt: number;
+  updatedAt: number;
+  status: BrandStatus;
+  /** Human-readable failure reason when status === "failed". */
+  error?: string;
+  /** The `user:<id>` design-system id this brand registered, so selecting the
+   *  brand in the composer applies it through the existing design-system flow. */
+  designSystemId?: string;
+}
+
+/** A brand as surfaced to the library list + detail page. */
+export interface BrandSummary {
+  meta: BrandMeta;
+  brand: Brand | null;
+}
+
+export interface BrandListResponse {
+  brands: BrandSummary[];
+}
+
+export interface BrandDetailResponse {
+  meta: BrandMeta;
+  brand: Brand | null;
+  /** Prose brand guide markdown, when present. */
+  guide: string | null;
+}
+
+/** POST /api/brands request — extract a brand from a URL. */
+export interface BrandCreateRequest {
+  url: string;
+}
+
+// ─── extraction SSE events ───────────────────────────────────────────
+//
+// POST /api/brands streams `event: <name>\ndata: <json>\n\n` frames. The web
+// `useBrandExtract` hook reduces them into a 3-stage progress view:
+//   1. fetch & measure   (prefetch)
+//   2. build preview     (provisional)
+//   3. derive & register (design system)
+
+export type BrandExtractEvent =
+  | { event: 'created'; id: string }
+  | { event: 'phase'; phase: 'prefetch' | 'preview' | 'system' | 'done' }
+  | { event: 'prefetch'; step: string; detail?: string }
+  | { event: 'prefetch-done'; colors: number; fonts: number; logos: number; thin: boolean }
+  | { event: 'preview'; brand: Brand }
+  | { event: 'system'; ok: boolean; designSystemId?: string; error?: string }
+  | { event: 'brand'; id: string; brand: Brand }
+  | { event: 'error'; message: string };

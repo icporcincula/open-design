@@ -2076,15 +2076,17 @@ describe('MemorySection', () => {
     renderMemorySection();
 
     fireEvent.click(await screen.findByRole('tab', { name: 'Learn from chats' }));
+    // The chat-extraction switch now lives in the pluggable-hooks panel, named
+    // by the hook's label ("Learn from chats") rather than the old standalone
+    // toggle. Disambiguated from the same-named tab by role: checkbox.
     const toggle = screen.getByRole('checkbox', {
-      name: 'Learn from chat conversations',
+      name: 'Learn from chats',
     }) as HTMLInputElement;
 
     expect(toggle.checked).toBe(true);
     fireEvent.click(toggle);
 
     await waitFor(() => expect(toggle.checked).toBe(false));
-    expect(screen.getByText('Off')).toBeTruthy();
     expect(patchBodies).toEqual([{ chatExtractionEnabled: false }]);
   });
 });

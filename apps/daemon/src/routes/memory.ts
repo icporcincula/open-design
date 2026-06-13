@@ -1,4 +1,5 @@
 import type { Express } from 'express';
+import { MEMORY_TYPES } from '@open-design/contracts';
 import type { RouteDeps } from '../server-context.js';
 
 import {
@@ -31,7 +32,13 @@ import {
 export interface RegisterMemoryRoutesDeps extends RouteDeps<'http' | 'paths' | 'appConfig'> {}
 
 type UnknownRecord = Record<string, unknown>;
-type MemoryType = 'user' | 'feedback' | 'project' | 'reference';
+type MemoryType =
+  | 'user'
+  | 'feedback'
+  | 'project'
+  | 'reference'
+  | 'profile'
+  | 'rule';
 type MemoryExtractionProvider = 'anthropic' | 'openai' | 'azure' | 'google' | 'ollama';
 
 interface MemoryExtractionPatch {
@@ -45,6 +52,10 @@ interface MemoryExtractionPatch {
 interface MemoryConfigPatch {
   enabled?: boolean;
   chatExtractionEnabled?: boolean;
+  /** Two-loop memory per-hook toggles (default-on; omit to leave unchanged). */
+  profileEnabled?: boolean;
+  rewriteEnabled?: boolean;
+  verifyEnabled?: boolean;
   extraction?: MemoryExtractionPatch | null;
 }
 
@@ -70,7 +81,12 @@ function errorMessage(err: unknown): string {
 }
 
 function isMemoryType(value: unknown): value is MemoryType {
-  return value === 'user' || value === 'feedback' || value === 'project' || value === 'reference';
+  // Sourced from the shared contract so the new `profile` / `rule` buckets
+  // can't be rejected here while the type union already allows them.
+  return (
+    typeof value === 'string'
+    && (MEMORY_TYPES as readonly string[]).includes(value)
+  );
 }
 
 function isExtractionProvider(value: unknown): value is MemoryExtractionProvider {
@@ -102,6 +118,9 @@ export function registerMemoryRoutes(app: Express, ctx: RegisterMemoryRoutesDeps
       res.json({
         enabled: config.enabled,
         chatExtractionEnabled: config.chatExtractionEnabled,
+        profileEnabled: config.profileEnabled,
+        rewriteEnabled: config.rewriteEnabled,
+        verifyEnabled: config.verifyEnabled,
         rootDir: memoryDir(RUNTIME_DATA_DIR),
         index,
         entries,
@@ -165,6 +184,15 @@ export function registerMemoryRoutes(app: Express, ctx: RegisterMemoryRoutesDeps
       if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
       if (typeof body.chatExtractionEnabled === 'boolean') {
         patch.chatExtractionEnabled = body.chatExtractionEnabled;
+      }
+      if (typeof body.profileEnabled === 'boolean') {
+        patch.profileEnabled = body.profileEnabled;
+      }
+      if (typeof body.rewriteEnabled === 'boolean') {
+        patch.rewriteEnabled = body.rewriteEnabled;
+      }
+      if (typeof body.verifyEnabled === 'boolean') {
+        patch.verifyEnabled = body.verifyEnabled;
       }
       // Three-state extraction handling so the UI can: (a) leave the
       // override alone (omit `extraction`), (b) clear it back to
@@ -231,6 +259,9 @@ export function registerMemoryRoutes(app: Express, ctx: RegisterMemoryRoutesDeps
       res.json({
         enabled: next.enabled,
         chatExtractionEnabled: next.chatExtractionEnabled,
+        profileEnabled: next.profileEnabled,
+        rewriteEnabled: next.rewriteEnabled,
+        verifyEnabled: next.verifyEnabled,
         extraction: maskMemoryExtractionConfig(next.extraction),
       });
     } catch (err) {

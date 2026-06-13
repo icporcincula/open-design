@@ -142,6 +142,7 @@ import {
 } from './design-systems.js';
 import { createDesignSystemGenerationJobStore } from './design-system-generation-jobs.js';
 import { prepareDesignTokenContractRebuild } from './design-token-contract-rebuild.js';
+import { registerBrandRoutes } from './brand-routes.js';
 import {
   applyDiffReviewDecisionToCwd,
   applyPlugin,
@@ -187,7 +188,7 @@ import {
   respondSurface as respondSurfaceRow,
   revokeProjectSurface,
 } from './genui/index.js';
-import { composeMemoryBody, extractFromMessage } from './memory.js';
+import { composeMemoryBody, extractFromMessage, readMemoryConfig } from './memory.js';
 import { attachAcpSession } from './acp.js';
 import { attachPiRpcSession } from './pi-rpc.js';
 import { stageAmrImagePaths } from './amr-image-staging.js';
@@ -1620,6 +1621,9 @@ const CRITIQUE_ARTIFACTS_DIR = path.join(RUNTIME_DATA_DIR, 'critique-artifacts')
 const PROJECTS_DIR = path.join(RUNTIME_DATA_DIR, 'projects');
 const USER_SKILLS_DIR = path.join(RUNTIME_DATA_DIR, 'skills');
 const USER_DESIGN_SYSTEMS_DIR = path.join(RUNTIME_DATA_DIR, 'design-systems');
+// Brand metadata (brand.json + meta.json per brand) lives here; each brand
+// also registers a `user:<id>` design system under USER_DESIGN_SYSTEMS_DIR.
+const BRANDS_DIR = path.join(RUNTIME_DATA_DIR, 'brands');
 const PLUGIN_REGISTRY_ROOTS = registryRootsForDataDir(RUNTIME_DATA_DIR);
 // Disk cache + same-origin proxy for external preview media (cross-border CDN
 // images/videos referenced by plugin example.html). See plugin-asset-cache.ts.
@@ -1645,7 +1649,7 @@ const ALL_SKILL_LIKE_ROOTS = [
   DESIGN_TEMPLATES_DIR,
 ];
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
-for (const dir of [USER_SKILLS_DIR, USER_DESIGN_SYSTEMS_DIR, USER_DESIGN_TEMPLATES_DIR, PLUGIN_REGISTRY_ROOTS.userPluginsRoot]) {
+for (const dir of [USER_SKILLS_DIR, USER_DESIGN_SYSTEMS_DIR, BRANDS_DIR, USER_DESIGN_TEMPLATES_DIR, PLUGIN_REGISTRY_ROOTS.userPluginsRoot]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 fs.mkdirSync(CRITIQUE_ARTIFACTS_DIR, { recursive: true });
@@ -6896,6 +6900,11 @@ export async function startServer({
     }
   });
 
+  registerBrandRoutes(app, {
+    brandsRoot: BRANDS_DIR,
+    userDesignSystemsRoot: USER_DESIGN_SYSTEMS_DIR,
+  });
+
   app.get('/api/design-systems', async (_req, res) => {
     try {
       const systems = await listAllDesignSystems();
@@ -10896,6 +10905,24 @@ export async function startServer({
       console.warn('[memory] composeMemoryBody failed', err);
     }
 
+    // Per-hook switches for the two-loop memory feature. Read alongside the
+    // memory body so the composer can gate the PRE intent-gateway brief and
+    // the POST self-verify scorecard on the same config the settings panel
+    // writes. Read failure falls through to undefined hooks, which the
+    // composer treats as on-by-default — matching the config's default-on
+    // semantics.
+    let memoryHooks: { profile?: boolean; rewrite?: boolean; verify?: boolean } | undefined;
+    try {
+      const memCfg = await readMemoryConfig(RUNTIME_DATA_DIR);
+      memoryHooks = {
+        profile: memCfg.profileEnabled,
+        rewrite: memCfg.rewriteEnabled,
+        verify: memCfg.verifyEnabled,
+      };
+    } catch (err) {
+      console.warn('[memory] readMemoryConfig failed', err);
+    }
+
     // User-level custom instructions from app-config.json.
     let userInstructions = '';
     try {
@@ -11139,6 +11166,7 @@ export async function startServer({
       craftBody,
       craftSections,
       memoryBody,
+      memoryHooks,
       metadata,
       template,
       audioVoiceOptions,

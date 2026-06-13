@@ -81,6 +81,7 @@ import { CenteredLoader } from './Loading';
 import { DesignsTab } from './DesignsTab';
 import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
 import { DesignSystemsTab } from './DesignSystemsTab';
+import { BrandsTab } from './BrandsTab';
 import { EntryNavRail, type EntryView as EntryViewKind } from './EntryNavRail';
 import { UpdaterPopup } from './UpdaterPopup';
 import { GithubStarBadge } from './GithubStarBadge';
@@ -132,6 +133,7 @@ import {
   amrLoginPollOutcome,
   notifyAmrLoginStatusChanged,
 } from './amrLoginPolling';
+import { useBrandExtract } from '../runtime/useBrandExtract';
 import { closeAmrActivationWindowBestEffort } from './AmrLoginPill';
 import { AnimatePresence } from 'motion/react';
 import { smoothScrollToTop } from '../utils/smoothScrollToTop';
@@ -380,6 +382,10 @@ function navElementForView(
     case 'plugins':
       return 'plugins';
     case 'design-systems':
+      return 'design_systems';
+    case 'brands':
+      // No dedicated brands analytics element yet; reuse the design_systems
+      // slot since Brands replaces that nav destination.
       return 'design_systems';
     case 'integrations':
       return 'integrations';
@@ -859,6 +865,9 @@ export function EntryShell({
                 </div>
               )}
             </div>
+            <div data-testid="entry-view-brands" data-active={view === 'brands' ? 'true' : 'false'} {...inactiveViewProps(view === 'brands')}>
+              <BrandsTab />
+            </div>
             {view === 'integrations' ? (
               <IntegrationsView
                 config={config}
@@ -954,6 +963,22 @@ function OnboardingView({
   const [amrLoginPending, setAmrLoginPending] = useState(false);
   const [amrLoginCancelPending, setAmrLoginCancelPending] = useState(false);
   const [newsletterSubmitting, setNewsletterSubmitting] = useState(false);
+  // Optional brand extraction on the final onboarding step. The hook
+  // drives a 3-stage SSE progress model against POST /api/brands; the
+  // local URL string is the only extra state the panel needs. Extraction
+  // is entirely optional — it never blocks the Finish/Continue button
+  // (see handlePrimaryAction, which has no brand awareness).
+  const [brandUrl, setBrandUrl] = useState('');
+  const {
+    state: brandExtractState,
+    run: runBrandExtract,
+  } = useBrandExtract();
+  const brandExtractActive =
+    brandExtractState.phase === 'prefetch' ||
+    brandExtractState.phase === 'preview' ||
+    brandExtractState.phase === 'system';
+  const brandExtractDone = brandExtractState.phase === 'done';
+  const brandExtractFailed = brandExtractState.phase === 'error';
   const [amrLoginError, setAmrLoginError] = useState<string | null>(null);
   const [visibleAgentIds, setVisibleAgentIds] = useState<string[]>([]);
   const [providerTestState, setProviderTestState] = useState<
@@ -2050,6 +2075,71 @@ function OnboardingView({
 
           {step === 2 ? (
             <div className="onboarding-view__panel onboarding-view__panel--newsletter">
+              <OnboardingPanelHeader
+                title={t('onboarding.brandTitle')}
+                body={t('onboarding.brandSubtitle')}
+              />
+              <label className="onboarding-view__email-field">
+                <span className="onboarding-view__email-label">
+                  {t('newBrand.urlLabel')}
+                </span>
+                <input
+                  className="onboarding-view__brand-url-input"
+                  type="url"
+                  autoComplete="url"
+                  inputMode="url"
+                  placeholder={t('newBrand.urlPlaceholder')}
+                  value={brandUrl}
+                  disabled={brandExtractActive}
+                  onChange={(event) => setBrandUrl(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === 'Enter' &&
+                      brandUrl.trim() &&
+                      !brandExtractActive
+                    ) {
+                      event.preventDefault();
+                      void runBrandExtract(brandUrl.trim());
+                    }
+                  }}
+                />
+              </label>
+              <div className="onboarding-view__email-field">
+                <button
+                  type="button"
+                  className={`onboarding-view__mini-button${brandExtractActive ? ' is-loading' : ''}`}
+                  onClick={() => {
+                    if (!brandUrl.trim() || brandExtractActive) return;
+                    void runBrandExtract(brandUrl.trim());
+                  }}
+                  disabled={!brandUrl.trim() || brandExtractActive}
+                >
+                  {brandExtractActive
+                    ? t('brand.extracting')
+                    : t('newBrand.extract')}
+                </button>
+                {brandExtractActive ? (
+                  <span
+                    className="onboarding-view__action-status"
+                    role="status"
+                  >
+                    {brandExtractState.progress || t('brand.extracting')}
+                  </span>
+                ) : null}
+                {brandExtractDone ? (
+                  <span className="onboarding-view__action-status" role="status">
+                    {t('onboarding.brandDone')}
+                  </span>
+                ) : null}
+                {brandExtractFailed ? (
+                  <span
+                    className="onboarding-view__action-status is-error"
+                    role="alert"
+                  >
+                    {brandExtractState.progress || t('brand.failed')}
+                  </span>
+                ) : null}
+              </div>
               <OnboardingPanelHeader
                 title={t('settings.onboardingNewsletterTitle')}
                 body={t('settings.onboardingNewsletterBody')}

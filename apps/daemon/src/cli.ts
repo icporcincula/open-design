@@ -7,6 +7,7 @@ import { runProjectHandoff } from './handoff-cli.js';
 import { runConnectorsToolCli } from './tools-connectors-cli.js';
 import { runDesignSystemsToolCli } from './tools-design-systems-cli.js';
 import { DESIGN_SYSTEMS_USAGE, isDesignSystemsHelpArg } from './design-systems-cli-help.js';
+import { BRAND_USAGE, isBrandHelpArg } from './brands-cli-help.js';
 import { parseDesignSystemRenameArgs } from './design-system-rename-args.js';
 import { runLiveArtifactsToolCli } from './tools-live-artifacts-cli.js';
 import { splitResearchSubcommand } from './research/cli-args.js';
@@ -208,6 +209,14 @@ const AUTOMATION_BOOLEAN_FLAGS = new Set([
 ]);
 const MEMORY_STRING_FLAGS = new Set([
   'daemon-url', 'name', 'description', 'type', 'body', 'body-file',
+  // `od memory profile set` reads structured fields verbatim and/or a prose
+  // body; `--field "Label=Value"` is repeatable (scanned manually below since
+  // parseFlags collapses duplicate keys). `--prompt-file <path|->` mirrors the
+  // long-prose embeddability contract used by `od automation`/`od brand`.
+  'field', 'prompt-file', 'assertion', 'check', 'rationale',
+  // `od memory config` toggles accept true|false values (string, not boolean)
+  // so an agent can set OR clear a hook in one shape: `--profile false`.
+  'enabled', 'profile', 'rewrite', 'verify', 'extraction',
 ]);
 const MEMORY_BOOLEAN_FLAGS = new Set([
   'help', 'h', 'json',
@@ -216,6 +225,19 @@ const SHARE_STRING_FLAGS = new Set([
   'daemon-url', 'url', 'title', 'text', 'copy-text', 'locale', 'platform',
 ]);
 const SHARE_BOOLEAN_FLAGS = new Set([
+  'help', 'h', 'json',
+]);
+// `od brand …` mirrors the Brands library + New Brand modal. Same surface,
+// same /api/brands store. The CLI form is the embeddability contract: an
+// external agent (hermes-agent, openclaw, scripted job) can extract, list,
+// inspect, and remove brands headlessly without rendering the web UI.
+// Hoisted next to the other dispatch-touched flag sets because runBrand is
+// reachable through the top-of-file SUBCOMMAND_MAP dispatch, which runs during
+// module evaluation — a const declared further down would still be in TDZ.
+const BRAND_STRING_FLAGS = new Set([
+  'daemon-url', 'prompt-file',
+]);
+const BRAND_BOOLEAN_FLAGS = new Set([
   'help', 'h', 'json',
 ]);
 // Hoisted because `runAutomation` is reachable through the top-of-file
@@ -260,6 +282,8 @@ const SUBCOMMAND_MAP = {
   ui: runUi,
   marketplace: runMarketplace,
   share: runShare,
+  brand: runBrand,
+  brands: runBrand,
   project: runProject,
   automation: runAutomation,
   automations: runAutomation,
@@ -4720,6 +4744,307 @@ async function runShare(args) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Subcommand: od brand …
+//
+// Headless surface for the Brands library. This is the dual-track contract:
+// every capability the Brands UI exposes (extract from a URL, list, inspect,
+// delete) is reachable here so an external agent (hermes-agent, openclaw,
+// scripted job) can drive the brand lifecycle without rendering a page.
+// Storage is /api/brands on the local daemon; a "brand" registers a `user:<id>`
+// design system under the hood, so applying a brand reuses the existing
+// design-system apply flow — there is no separate brandId apply path.
+// ---------------------------------------------------------------------------
+
+// Derive a short domain for list output from a brand's source URL.
+function brandDomainForCli(sourceUrl) {
+  if (typeof sourceUrl !== 'string' || sourceUrl.trim().length === 0) return '-';
+  try {
+    const u = new URL(/^[a-z]+:\/\//i.test(sourceUrl) ? sourceUrl : `https://${sourceUrl}`);
+    return u.hostname.replace(/^www\./, '') || '-';
+  } catch {
+    return sourceUrl;
+  }
+}
+
+function formatBrandRow(summary) {
+  const meta = summary?.meta ?? {};
+  const name = summary?.brand?.name || meta.id || '-';
+  return [
+    meta.id ?? '-',
+    name,
+    brandDomainForCli(meta.sourceUrl),
+    meta.status ?? '-',
+  ].join('\t');
+}
+
+async function runBrand(args) {
+  if (args.length === 0 || isBrandHelpArg(args[0])
+      || args.includes('--help') || args.includes('-h')) {
+    console.log(BRAND_USAGE);
+    process.exit(args.length === 0 ? 2 : 0);
+  }
+  const sub = args[0];
+  const rest = args.slice(1);
+  switch (sub) {
+    case 'list':   return runBrandList(rest);
+    case 'create': return runBrandCreate(rest);
+    case 'get':    return runBrandGet(rest);
+    case 'show':   return runBrandGet(rest);
+    case 'delete': return runBrandDelete(rest);
+    case 'remove': return runBrandDelete(rest);
+    default:
+      console.error(`unknown subcommand: od brand ${sub}`);
+      console.log(BRAND_USAGE);
+      process.exit(2);
+  }
+}
+
+async function runBrandList(rest) {
+  let flags;
+  try {
+    flags = parseFlags(rest, { string: BRAND_STRING_FLAGS, boolean: BRAND_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/brands`);
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json();
+  if (flags.json) {
+    process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+    return;
+  }
+  const brands = Array.isArray(data?.brands) ? data.brands : [];
+  if (brands.length === 0) {
+    console.log('No brands yet. Extract one with: od brand create <url>');
+    return;
+  }
+  console.log('# id\tname\tdomain\tstatus');
+  for (const summary of brands) console.log(formatBrandRow(summary));
+}
+
+async function runBrandCreate(rest) {
+  let flags;
+  try {
+    flags = parseFlags(rest, { string: BRAND_STRING_FLAGS, boolean: BRAND_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const positional = positionalArgs(rest, BRAND_STRING_FLAGS);
+  // The URL may arrive as a positional, or — for parity with other long-input
+  // subcommands — via --prompt-file <path|-> (a file or stdin). The positional
+  // wins when both are present.
+  let url = positional[0];
+  if (!url) {
+    const fromFile = await readPromptFromFlags(flags);
+    if (typeof fromFile === 'string') url = fromFile.trim();
+  }
+  if (!url) {
+    console.error('Usage: od brand create <url> [--json]\n' +
+      '       od brand create --prompt-file <path|-> [--json]');
+    process.exit(2);
+  }
+
+  const base = await cliDaemonBaseUrl(flags);
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/brands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      body: JSON.stringify({ url }),
+    });
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (!resp.ok || !resp.body) {
+    return structuredHttpFailure(resp);
+  }
+
+  // Consume the SSE stream. Each frame is "event: <name>\ndata: <json>\n\n"
+  // where <json> is the full BrandExtractEvent (so data.event === <name>).
+  // Progress goes to stderr so stdout stays a clean machine-readable result;
+  // the daemon's 3-stage model is phase → prefetch/preview/system/brand/error.
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let exitCode = 0;
+  let createdId = null;
+  let finalBrand = null;
+  let errorMessage = null;
+  const events = [];
+
+  const STAGE_LABELS = {
+    prefetch: 'Fetching the site & measuring its design',
+    preview:  'Building a brand preview',
+    system:   'Deriving & registering the design system',
+    done:     'Brand ready',
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split('\n\n');
+    buffer = blocks.pop() ?? '';
+    for (const block of blocks) {
+      const lines = block.split('\n');
+      const dataLine = lines.find((l) => l.startsWith('data: '));
+      const data = dataLine ? safeParseJson(dataLine.slice('data: '.length)) : null;
+      if (!data || typeof data.event !== 'string') continue;
+      events.push(data);
+      switch (data.event) {
+        case 'created':
+          createdId = data.id ?? createdId;
+          break;
+        case 'phase':
+          if (!flags.json && STAGE_LABELS[data.phase]) {
+            process.stderr.write(`[brand] ${STAGE_LABELS[data.phase]}\n`);
+          }
+          break;
+        case 'prefetch':
+          if (!flags.json) {
+            const detail = data.detail ? ` — ${data.detail}` : '';
+            process.stderr.write(`[brand] ${data.step}${detail}\n`);
+          }
+          break;
+        case 'prefetch-done':
+          if (!flags.json) {
+            process.stderr.write(
+              `[brand] measured ${data.colors} colors · ${data.fonts} fonts · ${data.logos} logos\n`,
+            );
+          }
+          break;
+        case 'system':
+          if (!flags.json && data.ok === false && data.error) {
+            process.stderr.write(`[brand] design-system warning: ${data.error}\n`);
+          }
+          break;
+        case 'brand':
+          createdId = data.id ?? createdId;
+          finalBrand = data.brand ?? finalBrand;
+          break;
+        case 'error':
+          errorMessage = data.message ?? 'extraction failed';
+          exitCode = 1;
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  if (exitCode !== 0 || (errorMessage && !finalBrand)) {
+    if (flags.json) {
+      process.stdout.write(JSON.stringify({
+        ok: false,
+        id: createdId,
+        error: errorMessage ?? 'extraction failed',
+        events,
+      }, null, 2) + '\n');
+    } else {
+      console.error(`[brand] extraction failed: ${errorMessage ?? 'unknown error'}`);
+    }
+    process.exit(exitCode || 1);
+  }
+
+  if (flags.json) {
+    process.stdout.write(JSON.stringify({
+      ok: true,
+      id: createdId,
+      brand: finalBrand,
+    }, null, 2) + '\n');
+    return;
+  }
+  // Clean stdout result: "<id>\t<name>" so jq / cut / xargs can chain.
+  const name = finalBrand?.name ?? createdId ?? '';
+  console.log(`${createdId ?? ''}\t${name}`);
+}
+
+async function runBrandGet(rest) {
+  let flags;
+  try {
+    flags = parseFlags(rest, { string: BRAND_STRING_FLAGS, boolean: BRAND_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const id = positionalArgs(rest, BRAND_STRING_FLAGS)[0];
+  if (!id) {
+    console.error('Usage: od brand get <id> [--json]');
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/brands/${encodeURIComponent(id)}`);
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (resp.status === 404) {
+    console.error(`brand not found: ${id}`);
+    process.exit(4);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json();
+  if (flags.json) {
+    process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+    return;
+  }
+  const meta = data?.meta ?? {};
+  const brand = data?.brand ?? null;
+  console.log(`id\t${meta.id ?? id}`);
+  console.log(`name\t${brand?.name ?? '-'}`);
+  console.log(`domain\t${brandDomainForCli(meta.sourceUrl)}`);
+  console.log(`status\t${meta.status ?? '-'}`);
+  if (meta.designSystemId) console.log(`designSystem\t${meta.designSystemId}`);
+  if (brand?.tagline) console.log(`tagline\t${brand.tagline}`);
+  if (Array.isArray(brand?.colors) && brand.colors.length > 0) {
+    console.log(`colors\t${brand.colors.map((c) => c.hex).join(' ')}`);
+  }
+  if (meta.error) console.log(`error\t${meta.error}`);
+}
+
+async function runBrandDelete(rest) {
+  let flags;
+  try {
+    flags = parseFlags(rest, { string: BRAND_STRING_FLAGS, boolean: BRAND_BOOLEAN_FLAGS });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+  const id = positionalArgs(rest, BRAND_STRING_FLAGS)[0];
+  if (!id) {
+    console.error('Usage: od brand delete <id> [--json]');
+    process.exit(2);
+  }
+  const base = await cliDaemonBaseUrl(flags);
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/brands/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json().catch(() => ({ ok: true }));
+  if (flags.json) {
+    process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+    return;
+  }
+  console.log(`[brand] deleted ${id}`);
+}
+
 function normalizeChatSessionModeFlag(value) {
   if (value == null) return undefined;
   const mode = String(value).trim().toLowerCase();
@@ -6947,6 +7272,33 @@ function printMemoryHelp() {
   od memory tree move <id> --type user|feedback|project|reference [--json]
       Move an entry node to a different memory bucket while preserving its id.
 
+  od memory profile show [--json]
+      Print the singleton structured user profile (the PRE-loop reads this to
+      expand a short query into a brief), or "no profile yet" when unset.
+
+  od memory profile set [--field "Label=Value" ...] [--prompt-file <path|->]
+                        [--description <text>] [--json]
+      Upsert the user_profile entry. --field merges by label into the existing
+      profile body; --prompt-file (path or - for stdin) replaces the body
+      verbatim. Combine both: --prompt-file seeds the body, --field overrides.
+
+  od memory rule list [--json]
+      List verified rule memories (name + description). The POST loop enforces
+      these as scorecard rubric items.
+
+  od memory rule add --name <name> --assertion <text> --check <text>
+                     [--description <text>] [--rationale <text>]
+                     [--prompt-file <path|->] [--json]
+      Add a rule. The body is "Assertion: …\nCheck: …" (plus an optional
+      Rationale line), or the verbatim --prompt-file content when supplied.
+
+  od memory config [--enabled true|false] [--extraction true|false]
+                   [--profile true|false] [--rewrite true|false]
+                   [--verify true|false] [--json]
+      With no toggle flags, print every memory switch. With flags, PATCH the
+      config and print the result. --profile/--rewrite/--verify map to the
+      profile/rewrite/verify hooks; --extraction maps to chatExtractionEnabled.
+
 Common options:
   --daemon-url <url>   Open Design daemon HTTP base.`);
 }
@@ -7029,17 +7381,131 @@ async function patchMemoryTreeNode(base, id, body) {
   return await resp.json();
 }
 
+// GET /api/memory/:id, returning the MemoryEntry or null on a 404. Used by the
+// profile/rule subcommands so they can read-before-write (merge) without
+// crashing when the entry doesn't exist yet.
+async function fetchMemoryEntry(base, id) {
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/memory/${encodeURIComponent(id)}`);
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (resp.status === 404) return null;
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json();
+  return data.entry ?? data;
+}
+
+// Read the verbatim prose body for `od memory profile set` / `rule add`.
+// Accepts `--prompt-file <path>` or `--prompt-file -` (stdin). Returns
+// undefined when neither is supplied so the caller can fall back to flags.
+async function readMemoryPromptFile(flags) {
+  if (typeof flags['prompt-file'] !== 'string' || flags['prompt-file'].length === 0) {
+    return undefined;
+  }
+  const path = flags['prompt-file'];
+  if (path === '-') {
+    return await new Promise((resolve, reject) => {
+      let buf = '';
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (chunk) => { buf += chunk; });
+      process.stdin.on('end', () => resolve(buf));
+      process.stdin.on('error', reject);
+    });
+  }
+  const { readFile } = await import('node:fs/promises');
+  return await readFile(path, 'utf8');
+}
+
+// Collect repeated `--field "Label=Value"` flags from the raw argv slice.
+// parseFlags collapses duplicate keys, so we scan manually like `--input`
+// in `od plugin apply`. Returns an ordered list of {label, value} pairs.
+function collectMemoryFieldFlags(rest) {
+  const out = [];
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] !== '--field') continue;
+    const raw = rest[i + 1];
+    if (typeof raw !== 'string') continue;
+    i += 1;
+    const eq = raw.indexOf('=');
+    if (eq <= 0) continue;
+    const label = raw.slice(0, eq).trim();
+    const value = raw.slice(eq + 1).trim();
+    if (label) out.push({ label, value });
+  }
+  return out;
+}
+
+// The profile body is the canonical flat "- Label: value" markdown list shared
+// by the web Profile panel and the daemon onboarding-capture path
+// (apps/daemon/src/memory.ts). We parse it back into label→value so `--field`
+// upserts can merge by label rather than blindly appending, then re-render in
+// the same plain shape so a CLI-written profile round-trips through the UI.
+// A legacy "- **Label:** value" line is tolerated on read. Lines that don't
+// match (free prose, blank lines, headings) are preserved verbatim ahead of
+// the list.
+function parseProfileBody(body) {
+  const labels = [];
+  const byLabel = new Map();
+  const preamble = [];
+  for (const line of (body ?? '').split('\n')) {
+    const match = /^\s*-\s+(.+?):\s*(.*)$/.exec(line);
+    if (match) {
+      const label = match[1].replace(/\*\*/g, '').trim();
+      const value = match[2].replace(/^\*\*\s*/, '').replace(/\s*\*\*$/, '').trim();
+      if (!byLabel.has(label)) labels.push(label);
+      byLabel.set(label, value);
+    } else if (line.trim().length > 0) {
+      preamble.push(line);
+    }
+  }
+  return { labels, byLabel, preamble };
+}
+
+function renderProfileBody(parsed) {
+  const lines = [];
+  if (parsed.preamble.length > 0) {
+    lines.push(...parsed.preamble, '');
+  }
+  for (const label of parsed.labels) {
+    lines.push(`- ${label}: ${parsed.byLabel.get(label) ?? ''}`);
+  }
+  return lines.join('\n');
+}
+
+function printMemoryProfile(entry) {
+  if (!entry) {
+    console.log('no profile yet');
+    return;
+  }
+  printMemoryEntry(entry);
+}
+
+// `od memory config` reads every switch off GET /api/memory (the master
+// `enabled`, the extraction hook `chatExtractionEnabled`, and the three new
+// loop hooks). The new flags may be absent from older daemons / before the
+// route patch lands, so we coalesce missing booleans to a printable dash.
+function formatMemoryConfigSwitch(value) {
+  if (value === true) return 'on';
+  if (value === false) return 'off';
+  return '-';
+}
+
 async function runMemory(args) {
   if (args.length === 0 || args[0] === 'help' || args.includes('--help') || args.includes('-h')) {
     printMemoryHelp();
     process.exit(args.length === 0 ? 2 : 0);
   }
   const topic = args[0];
-  if (topic !== 'tree') {
+  if (topic !== 'tree' && topic !== 'profile' && topic !== 'rule' && topic !== 'config') {
     console.error(`unknown subcommand: od memory ${topic}`);
     printMemoryHelp();
     process.exit(2);
   }
+  // `od memory config` takes no inner action verb; the others are
+  // `<topic> <action>` and re-scan positionals below for the verb.
   const rest = args.slice(1);
   let flags;
   try {
@@ -7054,6 +7520,17 @@ async function runMemory(args) {
   const base = await cliDaemonBaseUrl(flags);
   const writeJson = (data) =>
     process.stdout.write(JSON.stringify(data, null, 2) + '\n');
+
+  if (topic === 'profile') {
+    return runMemoryProfile(base, rest, flags, writeJson);
+  }
+  if (topic === 'rule') {
+    return runMemoryRule(base, rest, flags, writeJson);
+  }
+  if (topic === 'config') {
+    return runMemoryConfig(base, rest, flags, writeJson);
+  }
+
   const parts = memoryPositionals(rest);
   const action = parts[0] ?? 'list';
 
@@ -7139,6 +7616,229 @@ async function runMemory(args) {
   console.error(`unknown subcommand: od memory tree ${action}`);
   printMemoryHelp();
   process.exit(2);
+}
+
+// `od memory profile <show|set>` — the singleton structured user profile the
+// PRE loop (intent gateway) reads to expand a short query into a full brief.
+// Same store as every other memory entry; the well-known id is `user_profile`.
+async function runMemoryProfile(base, rest, flags, writeJson) {
+  const parts = memoryPositionals(rest);
+  const action = parts[0] ?? 'show';
+  const PROFILE_ID = 'user_profile';
+
+  if (action === 'show') {
+    const entry = await fetchMemoryEntry(base, PROFILE_ID);
+    if (flags.json) return writeJson(entry ?? null);
+    printMemoryProfile(entry);
+    return;
+  }
+
+  if (action === 'set') {
+    const fields = collectMemoryFieldFlags(rest);
+    const promptBody = await readMemoryPromptFile(flags);
+    if (fields.length === 0 && typeof promptBody !== 'string') {
+      console.error('Usage: od memory profile set [--field "Label=Value" ...] [--prompt-file <path|->] [--description <text>]');
+      process.exit(2);
+    }
+    const existing = await fetchMemoryEntry(base, PROFILE_ID);
+    // --prompt-file replaces the body verbatim; otherwise we merge --field
+    // pairs by label into the existing profile body.
+    const parsed = typeof promptBody === 'string'
+      ? parseProfileBody(promptBody)
+      : parseProfileBody(existing?.body ?? '');
+    for (const { label, value } of fields) {
+      if (!parsed.byLabel.has(label)) parsed.labels.push(label);
+      parsed.byLabel.set(label, value);
+    }
+    const nextBody = renderProfileBody(parsed);
+    const payload = {
+      type: 'profile',
+      name: existing?.name || 'Work profile',
+      description: typeof flags.description === 'string'
+        ? flags.description
+        : (existing?.description ?? 'How I work — read by the intent gateway.'),
+      body: nextBody,
+    };
+    let resp;
+    try {
+      resp = await fetch(`${base}/api/memory/${encodeURIComponent(PROFILE_ID)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      surfaceFetchError(err, base);
+      process.exit(3);
+    }
+    if (!resp.ok) return structuredHttpFailure(resp);
+    const data = await resp.json();
+    if (flags.json) return writeJson(data.entry ?? data);
+    console.log(`[memory] saved profile ${data.entry?.id ?? PROFILE_ID}`);
+    printMemoryProfile(data.entry ?? data);
+    return;
+  }
+
+  console.error(`unknown subcommand: od memory profile ${action}`);
+  printMemoryHelp();
+  process.exit(2);
+}
+
+// `od memory rule <list|add>` — verified rules (assertion + check) the POST
+// self-verify loop enforces as scorecard rubric items.
+async function runMemoryRule(base, rest, flags, writeJson) {
+  const parts = memoryPositionals(rest);
+  const action = parts[0] ?? 'list';
+
+  if (action === 'list') {
+    let resp;
+    try {
+      resp = await fetch(`${base}/api/memory`);
+    } catch (err) {
+      surfaceFetchError(err, base);
+      process.exit(3);
+    }
+    if (!resp.ok) return structuredHttpFailure(resp);
+    const data = await resp.json();
+    const rules = (data.entries ?? []).filter((e) => e.type === 'rule');
+    if (flags.json) return writeJson({ rules });
+    if (rules.length === 0) {
+      console.log('No rule memories.');
+      return;
+    }
+    for (const rule of rules) {
+      console.log(`${rule.id}\t${rule.name}\t${rule.description || '-'}`);
+    }
+    return;
+  }
+
+  if (action === 'add') {
+    const name = flags.name;
+    if (typeof name !== 'string' || name.length === 0) {
+      console.error('Usage: od memory rule add --name <name> --assertion <text> --check <text> [--description <text>] [--rationale <text>] [--prompt-file <path|->]');
+      process.exit(2);
+    }
+    // --prompt-file content becomes the rule body verbatim; otherwise we
+    // compose "Assertion: …\nCheck: …" (+ optional Rationale) from flags.
+    const promptBody = await readMemoryPromptFile(flags);
+    let body;
+    if (typeof promptBody === 'string') {
+      body = promptBody;
+    } else {
+      const assertion = flags.assertion;
+      const check = flags.check;
+      if (typeof assertion !== 'string' || typeof check !== 'string') {
+        console.error('rule add needs --assertion and --check (or --prompt-file for the body)');
+        process.exit(2);
+      }
+      const lines = [`Assertion: ${assertion}`, `Check: ${check}`];
+      if (typeof flags.rationale === 'string' && flags.rationale.length > 0) {
+        lines.push(`Rationale: ${flags.rationale}`);
+      }
+      body = lines.join('\n');
+    }
+    const payload = {
+      type: 'rule',
+      name,
+      description: typeof flags.description === 'string' ? flags.description : '',
+      body,
+    };
+    let resp;
+    try {
+      resp = await fetch(`${base}/api/memory`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      surfaceFetchError(err, base);
+      process.exit(3);
+    }
+    if (!resp.ok) return structuredHttpFailure(resp);
+    const data = await resp.json();
+    if (flags.json) return writeJson(data.entry ?? data);
+    console.log(`[memory] added rule ${data.entry?.id ?? name}`);
+    return;
+  }
+
+  console.error(`unknown subcommand: od memory rule ${action}`);
+  printMemoryHelp();
+  process.exit(2);
+}
+
+// `od memory config` — inspect or toggle the master switch + the four hooks.
+// No flags ⇒ print every switch (read off GET /api/memory). Toggle flags ⇒
+// PATCH /api/memory/config and print the result. Flags accept true|false.
+async function runMemoryConfig(base, rest, flags, writeJson) {
+  // Map CLI flag → config field. --extraction is the chat-extraction hook;
+  // --profile/--rewrite/--verify are the new PRE/POST loop hooks.
+  const TOGGLE_MAP = {
+    enabled: 'enabled',
+    extraction: 'chatExtractionEnabled',
+    profile: 'profileEnabled',
+    rewrite: 'rewriteEnabled',
+    verify: 'verifyEnabled',
+  };
+  const parseBool = (raw, flagName) => {
+    if (raw === 'true' || raw === true) return true;
+    if (raw === 'false') return false;
+    console.error(`--${flagName} expects true or false`);
+    process.exit(2);
+  };
+
+  const patch = {};
+  for (const [flagName, field] of Object.entries(TOGGLE_MAP)) {
+    if (flagName in flags) {
+      patch[field] = parseBool(flags[flagName], flagName);
+    }
+  }
+
+  // No toggles → read-only listing of every switch off GET /api/memory.
+  if (Object.keys(patch).length === 0) {
+    let resp;
+    try {
+      resp = await fetch(`${base}/api/memory`);
+    } catch (err) {
+      surfaceFetchError(err, base);
+      process.exit(3);
+    }
+    if (!resp.ok) return structuredHttpFailure(resp);
+    const data = await resp.json();
+    const view = {
+      enabled: data.enabled,
+      chatExtractionEnabled: data.chatExtractionEnabled,
+      profileEnabled: data.profileEnabled,
+      rewriteEnabled: data.rewriteEnabled,
+      verifyEnabled: data.verifyEnabled,
+    };
+    if (flags.json) return writeJson(view);
+    console.log(`enabled               ${formatMemoryConfigSwitch(view.enabled)}`);
+    console.log(`chatExtractionEnabled ${formatMemoryConfigSwitch(view.chatExtractionEnabled)}`);
+    console.log(`profileEnabled        ${formatMemoryConfigSwitch(view.profileEnabled)}`);
+    console.log(`rewriteEnabled        ${formatMemoryConfigSwitch(view.rewriteEnabled)}`);
+    console.log(`verifyEnabled         ${formatMemoryConfigSwitch(view.verifyEnabled)}`);
+    return;
+  }
+
+  let resp;
+  try {
+    resp = await fetch(`${base}/api/memory/config`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+  } catch (err) {
+    surfaceFetchError(err, base);
+    process.exit(3);
+  }
+  if (!resp.ok) return structuredHttpFailure(resp);
+  const data = await resp.json();
+  if (flags.json) return writeJson(data);
+  console.log(`enabled               ${formatMemoryConfigSwitch(data.enabled)}`);
+  console.log(`chatExtractionEnabled ${formatMemoryConfigSwitch(data.chatExtractionEnabled)}`);
+  console.log(`profileEnabled        ${formatMemoryConfigSwitch(data.profileEnabled)}`);
+  console.log(`rewriteEnabled        ${formatMemoryConfigSwitch(data.rewriteEnabled)}`);
+  console.log(`verifyEnabled         ${formatMemoryConfigSwitch(data.verifyEnabled)}`);
+  return;
 }
 
 // ---------------------------------------------------------------------------

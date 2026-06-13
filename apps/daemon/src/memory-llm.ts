@@ -43,6 +43,7 @@
 // — produces a record in `memory-extractions.ts` so the settings panel
 // can show running / skipped / success / failed states in real time.
 
+import { MEMORY_TYPES } from '@open-design/contracts';
 import {
   composeMemoryBody,
   listMemoryEntries,
@@ -993,7 +994,10 @@ function parseEntries(rawText) {
     }
   }
   const list = Array.isArray(parsed?.entries) ? parsed.entries : [];
-  const validTypes = new Set(['user', 'feedback', 'project', 'reference']);
+  // Accept every type the shared contract knows about — including the new
+  // `profile` / `rule` buckets — so an LLM that proposes a verified rule or a
+  // profile fact isn't silently discarded here.
+  const validTypes = new Set(MEMORY_TYPES);
   return list
     .filter(
       (e) =>

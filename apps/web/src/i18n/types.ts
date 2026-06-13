@@ -640,6 +640,45 @@ export interface Dict {
   'settings.memoryTypeFeedback': string;
   'settings.memoryTypeProject': string;
   'settings.memoryTypeReference': string;
+  'settings.memoryTypeProfile': string;
+  'settings.memoryTypeRule': string;
+  // Memory → two-loop: structured profile editor
+  'settings.memoryProfileTab': string;
+  'settings.memoryProfileTabCaption': string;
+  'settings.memoryProfileTitle': string;
+  'settings.memoryProfileHint': string;
+  'settings.memoryProfileName': string;
+  'settings.memoryProfileDescription': string;
+  'settings.memoryProfileSave': string;
+  'settings.memoryProfileSaving': string;
+  'settings.memoryProfileSaved': string;
+  'settings.memoryProfileRole': string;
+  'settings.memoryProfileRolePlaceholder': string;
+  'settings.memoryProfileCompany': string;
+  'settings.memoryProfileCompanyPlaceholder': string;
+  'settings.memoryProfileDomain': string;
+  'settings.memoryProfileDomainPlaceholder': string;
+  'settings.memoryProfileAudience': string;
+  'settings.memoryProfileAudiencePlaceholder': string;
+  'settings.memoryProfileAesthetic': string;
+  'settings.memoryProfileAestheticPlaceholder': string;
+  'settings.memoryProfileDeliverables': string;
+  'settings.memoryProfileDeliverablesPlaceholder': string;
+  'settings.memoryProfileLocale': string;
+  'settings.memoryProfileLocalePlaceholder': string;
+  'settings.memoryProfileGoals': string;
+  'settings.memoryProfileGoalsPlaceholder': string;
+  // Memory → two-loop: pluggable hooks panel
+  'settings.memoryHooksTitle': string;
+  'settings.memoryHooksHint': string;
+  'settings.memoryHooksProfileLabel': string;
+  'settings.memoryHooksProfileDesc': string;
+  'settings.memoryHooksRewriteLabel': string;
+  'settings.memoryHooksRewriteDesc': string;
+  'settings.memoryHooksVerifyLabel': string;
+  'settings.memoryHooksVerifyDesc': string;
+  'settings.memoryHooksExtractionLabel': string;
+  'settings.memoryHooksExtractionDesc': string;
   'settings.memoryIndex': string;
   'settings.memoryIndexSave': string;
   'settings.memoryIndexReset': string;
@@ -815,6 +854,7 @@ export interface Dict {
   'entry.navTasks': string;
   'entry.navPlugins': string;
   'entry.navDesignSystems': string;
+  'entry.navBrands': string;
   'entry.navIntegrations': string;
   'workspaceTabs.project': string;
   'workspaceTabs.pluginDetails': string;
@@ -2978,6 +3018,26 @@ export interface Dict {
   'questions.skipAll': string;
   'questions.autoSkipHint': string;
 
+  // Inline <od-card> memory cards (display-only siblings of question-form)
+  'artifact.odCardTaskBriefChip': string;
+  'artifact.odCardScorecardTitle': string;
+  'artifact.odCardScorecardStatusPass': string;
+  'artifact.odCardScorecardStatusPartial': string;
+  'artifact.odCardScorecardStatusFail': string;
+  'artifact.odCardRuleKicker': string;
+  'artifact.odCardRuleNameLabel': string;
+  'artifact.odCardRuleDescriptionLabel': string;
+  'artifact.odCardRuleAssertionLabel': string;
+  'artifact.odCardRuleCheckLabel': string;
+  'artifact.odCardRuleRationaleLabel': string;
+  'artifact.odCardRuleKeep': string;
+  'artifact.odCardRuleEdit': string;
+  'artifact.odCardRuleDone': string;
+  'artifact.odCardRuleDiscard': string;
+  'artifact.odCardRuleSaving': string;
+  'artifact.odCardRuleSaved': string;
+  'artifact.odCardRuleError': string;
+
   // Pet (Codex-style floating companion)
   'pet.title': string;
   'pet.subtitle': string;
@@ -3181,4 +3241,46 @@ export interface Dict {
   'diagnostics.exporting': string;
   'diagnostics.exportSuccess': string;
   'diagnostics.exportFailed': string;
+
+  // Brands library + extraction
+  'brand.libraryTitle': string;
+  'brand.librarySubtitle': string;
+  'brand.newBrand': string;
+  'brand.searchPlaceholder': string;
+  'brand.empty': string;
+  'brand.colorsCount': string;
+  'brand.extracting': string;
+  'brand.failed': string;
+  'newBrand.title': string;
+  'newBrand.subtitle': string;
+  'newBrand.urlLabel': string;
+  'newBrand.urlPlaceholder': string;
+  'newBrand.extract': string;
+  'newBrand.cancel': string;
+  'newBrand.close': string;
+  'newBrand.stage1': string;
+  'newBrand.stage2': string;
+  'newBrand.stage3': string;
+  'newBrand.measured': string;
+  'newBrand.done': string;
+  'brandDetail.identity': string;
+  'brandDetail.designLanguage': string;
+  'brandDetail.colors': string;
+  'brandDetail.fonts': string;
+  'brandDetail.tone': string;
+  'brandDetail.aesthetic': string;
+  'brandDetail.tagline': string;
+  'brandDetail.voice': string;
+  'brandDetail.useInChat': string;
+  'brandDetail.delete': string;
+  'brandDetail.back': string;
+  'brandDetail.refining': string;
+  'brandDetail.notFound': string;
+  'settings.resetOnboarding': string;
+  'settings.resetOnboardingDesc': string;
+  'settings.resetOnboardingButton': string;
+  'onboarding.brandTitle': string;
+  'onboarding.brandSubtitle': string;
+  'onboarding.brandSkip': string;
+  'onboarding.brandDone': string;
 }

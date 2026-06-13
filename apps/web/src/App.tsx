@@ -31,6 +31,7 @@ import {
   DesignSystemCreationFlow,
   DesignSystemDetailView,
 } from './components/DesignSystemFlow';
+import { BrandDetailView } from './components/BrandDetailView';
 import {
   IframeKeepAliveProvider,
   useIframeKeepAlivePool,
@@ -2051,6 +2052,8 @@ function AppInner() {
         }
       />
     );
+  } else if (route.kind === 'brand-detail') {
+    appMain = <BrandDetailView brandId={route.brandId} />;
   } else if (activeProject) {
     appMain = (
       <ProjectView
