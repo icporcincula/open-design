@@ -880,6 +880,9 @@ const PROFILE_FIELD_LINE_RE = /^\s*-\s+([^:]+):\s*(.*)$/;
 // rather than creating a duplicate entry in the merged map.
 const CANONICAL_PROFILE_LABELS = [
   'Role',
+  'Organization size',
+  'Use cases',
+  'Discovery source',
   'Company / Team',
   'Domain',
   'Primary audience',

@@ -22,9 +22,11 @@ import {
 } from 'react';
 import {
   defaultScenarioPluginIdForProjectMetadata,
+  PROFILE_MEMORY_ID,
   type ChatSessionMode,
   type ConnectorDetail,
   type InstalledPluginRecord,
+  type UpsertMemoryRequest,
 } from '@open-design/contracts';
 import type { OpenDesignHostProjectImportSuccess } from '@open-design/host';
 import type { DesignSystemGenerateSnapshot } from './DesignSystemFlow';
@@ -196,6 +198,14 @@ const ONBOARDING_AMR_MODEL_OPTIONS: NonNullable<AgentInfo['models']> = [
   { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { id: 'glm-5.1', label: 'GLM 5.1' },
 ];
+
+type OnboardingProfileState = {
+  role: string;
+  orgSize: string;
+  useCase: string[];
+  source: string;
+  email: string;
+};
 
 function defaultPluginIdForMetadata(metadata: ProjectMetadata): string | null {
   return defaultScenarioPluginIdForProjectMetadata(metadata);
@@ -1003,7 +1013,7 @@ function OnboardingView({
     hasSharedProviderModelsCache
       ? onProviderModelsCacheChange!
       : setLocalProviderModelsCache;
-  const [profile, setProfile] = useState({
+  const [profile, setProfile] = useState<OnboardingProfileState>({
     role: '',
     orgSize: '',
     useCase: [] as string[],
@@ -1019,6 +1029,7 @@ function OnboardingView({
   // emitted on both — fine — but reading any cumulative summary off
   // `profile` directly missed the second pick until the next commit.
   const profileRef = useRef(profile);
+  const lastPersistedOnboardingProfileBodyRef = useRef<string>('');
   useEffect(() => {
     profileRef.current = profile;
   }, [profile]);
@@ -1370,6 +1381,63 @@ function OnboardingView({
     { value: 'search', label: t('settings.onboardingSourceSearch') },
     { value: 'event', label: t('settings.onboardingSourceEvent') },
   ];
+
+  function cleanOnboardingOptionLabel(label: string): string {
+    const trimmed = label.trim();
+    return trimmed.replace(/^[^\p{L}\p{N}]+/u, '').trim() || trimmed;
+  }
+
+  function optionLabel(
+    options: ReadonlyArray<{ value: string; label: string }>,
+    value: string,
+  ): string {
+    const option = options.find((item) => item.value === value);
+    return cleanOnboardingOptionLabel(option?.label ?? value);
+  }
+
+  function buildOnboardingProfileBody(snapshot: OnboardingProfileState): string {
+    const fields: Array<[string, string]> = [];
+    if (snapshot.role) {
+      fields.push(['Role', optionLabel(roleOptions, snapshot.role)]);
+    }
+    if (snapshot.orgSize) {
+      fields.push(['Organization size', optionLabel(orgSizeOptions, snapshot.orgSize)]);
+    }
+    if (snapshot.useCase.length > 0) {
+      fields.push([
+        'Use cases',
+        snapshot.useCase.map((value) => optionLabel(useCaseOptions, value)).join(', '),
+      ]);
+    }
+    if (snapshot.source) {
+      fields.push(['Discovery source', optionLabel(sourceOptions, snapshot.source)]);
+    }
+    return fields.map(([label, value]) => `- ${label}: ${value}`).join('\n');
+  }
+
+  async function persistOnboardingProfileToMemory(): Promise<void> {
+    const body = buildOnboardingProfileBody(profileRef.current);
+    if (!body || body === lastPersistedOnboardingProfileBodyRef.current) return;
+    const payload: UpsertMemoryRequest = {
+      type: 'profile',
+      name: t('settings.memoryProfileName'),
+      description: t('settings.memoryProfileDescription'),
+      body,
+    };
+    try {
+      const resp = await fetch(`/api/memory/${encodeURIComponent(PROFILE_MEMORY_ID)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (resp.ok) {
+        lastPersistedOnboardingProfileBodyRef.current = body;
+      }
+    } catch {
+      // Onboarding completion should not fail because local memory is unavailable.
+    }
+  }
+
   const byokProviderOptions = [
     { value: '', label: t('settings.customProvider') },
     ...KNOWN_PROVIDERS.filter((provider) => provider.protocol === apiProtocol).map((provider) => ({
@@ -1446,6 +1514,12 @@ function OnboardingView({
     emitOnboardingClick('back', 'back');
     setStep((current) => current - 1);
   }
+  function handleStepNavigation(index: number): void {
+    if (index !== step && step === 1) {
+      void persistOnboardingProfileToMemory();
+    }
+    setStep(index);
+  }
   async function handlePrimaryAction() {
     if (newsletterSubmitting) return;
     if (step === 0 && amrSelectedAndSignedOut) {
@@ -1471,6 +1545,7 @@ function OnboardingView({
       // `onboarding_complete_result` give the funnel two independent
       // carriers for the same data.
       emitAboutYouSubmit();
+      void persistOnboardingProfileToMemory();
       const newsletterEmail = profileRef.current.email;
       const shouldSubmitNewsletter =
         NEWSLETTER_EMAIL_RE.test(newsletterEmail.trim().toLowerCase());
@@ -1489,6 +1564,9 @@ function OnboardingView({
       return;
     }
     emitOnboardingClick('continue', 'continue');
+    if (step === 1) {
+      void persistOnboardingProfileToMemory();
+    }
     setStep((current) => current + 1);
   }
 
@@ -1846,7 +1924,7 @@ function OnboardingView({
             <span>{index + 1}</span>
             <button
               type="button"
-              onClick={() => setStep(index)}
+              onClick={() => handleStepNavigation(index)}
               disabled={onboardingNavigationLocked}
             >
               {label}

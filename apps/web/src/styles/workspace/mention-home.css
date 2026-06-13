@@ -1111,6 +1111,9 @@
     box-shadow 140ms var(--ease-out),
     transform 140ms var(--ease-out);
 }
+.settings-sidebar-toggle::before {
+  content: none;
+}
 .settings-sidebar-toggle svg {
   position: relative;
   z-index: 1;
@@ -1126,10 +1129,10 @@
 .settings-sidebar-toggle:focus-visible {
   opacity: 1;
   color: var(--text);
+  transform: translate(-50%, -50%) scale(1.02);
   border-color: color-mix(in srgb, var(--text) 18%, var(--border));
   background: var(--bg-panel);
   box-shadow: 0 4px 14px color-mix(in srgb, var(--shadow-color, #000) 12%, transparent);
-  transform: translate(-50%, -50%) scale(1.02);
 }
 .settings-sidebar-toggle:focus-visible {
   outline: 2px solid var(--accent);
@@ -1140,7 +1143,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .settings-sidebar-toggle {
-    transition: color 80ms linear, border-color 80ms linear, background-color 80ms linear;
+    transition: opacity 80ms linear, color 80ms linear;
     transform: translate(-50%, -50%) !important;
   }
 }

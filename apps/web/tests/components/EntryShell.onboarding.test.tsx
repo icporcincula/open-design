@@ -787,6 +787,65 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/subscribe'))).toBe(false);
   });
 
+  it('persists about-you selections to the work profile memory', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/integrations/vela/status')) {
+        return jsonResponse({
+          loggedIn: true,
+          profile: 'prod',
+          configPath: '/x',
+          user: { id: 'u', email: 'user@example.com' },
+        });
+      }
+      if (url === '/api/memory/user_profile' && init?.method === 'PUT') {
+        return jsonResponse({
+          entry: {
+            id: 'user_profile',
+            name: 'Work profile',
+            description: 'Role and defaults',
+            type: 'profile',
+            updatedAt: Date.now(),
+            body: JSON.parse(String(init.body)).body,
+          },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    renderOnboarding();
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Continue$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'About you' })).toBeTruthy();
+    });
+    chooseDropdownOption('Your role', 'Engineer');
+    chooseDropdownOption('Organization size', 'Growth company');
+    chooseDropdownOption('Use case', 'Product design');
+    chooseDropdownOption('Where did you hear about us?', 'Search');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/memory/user_profile')).toBe(true);
+    });
+    const memoryCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/memory/user_profile');
+    const payload = JSON.parse(String(memoryCall?.[1]?.body));
+    expect(memoryCall?.[1]).toMatchObject({
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(payload).toMatchObject({
+      type: 'profile',
+      name: 'Work profile',
+    });
+    expect(payload.body).toContain('- Role: Engineer');
+    expect(payload.body).toContain('- Organization size: Growth company');
+    expect(payload.body).toContain('- Use cases: Product design');
+    expect(payload.body).toContain('- Discovery source: Search');
+    expect(payload.body).not.toContain('user@example.com');
+  });
+
   it('reports about_you_submit exactly once when jumping to the newsletter step via the stepper', async () => {
     globalThis.fetch = vi.fn(async () =>
       jsonResponse({
